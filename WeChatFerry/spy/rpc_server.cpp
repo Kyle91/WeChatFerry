@@ -1017,13 +1017,10 @@ static int RunServer()
     while (lIsRunning) {
         uint8_t *in = NULL;
         size_t in_len, out_len = G_BUF_SIZE;
-
         if ((rv = nng_recv(cmdSock, &in, &in_len, NNG_FLAG_ALLOC)) != 0) {
             LOG_ERROR("cmdSock-nng_recv error: {}", nng_strerror(rv));
             break;
         }
-
-        LOG_INFO("Received message from client, length: {}", in_len);
         try {
             // LOG_BUFFER(in, in_len);
             if (dispatcher(in, in_len, gBuffer, &out_len)) {
