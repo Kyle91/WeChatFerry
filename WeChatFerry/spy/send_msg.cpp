@@ -53,7 +53,7 @@ void SendTextMessage(string wxid, string msg, string atWxids)
 {
     QWORD success  = 0;
     wstring wsWxid = String2Wstring(wxid);
-    wstring wsMsg  = String2Wstring(msg);
+    wstring wsMsg  = convertToWString(msg);
     WxString wxMsg(wsMsg);
     WxString wxWxid(wsWxid);
 
@@ -235,19 +235,19 @@ void SendEmotionMessage(string wxid, string path)
 }
 
 
-void SendXmlMessage(string receiver, string xml, string path, QWORD type)
+void SendXmlMessage(string receiver, string xml, string path, int type)
 {
     if (g_WeChatWinDllAddr == 0) {
         return;
     }
 
-
-
     New_t funcNew = (New_t)(g_WeChatWinDllAddr + OS_NEW);
     Free_t funcFree = (Free_t)(g_WeChatWinDllAddr + OS_FREE);
 
-    DWORD xmlBufSign = g_WeChatWinDllAddr + OS_XML_BUGSIGN;
-    DWORD sendXmlMsg = g_WeChatWinDllAddr + OS_SEND_XML;
+
+    QWORD xmlBufSign = g_WeChatWinDllAddr + OS_XML_BUGSIGN;
+    QWORD sendXmlMsg = g_WeChatWinDllAddr + OS_SEND_XML;
+
     __XmlBufSignFunc xmlBufSignFunc = (__XmlBufSignFunc)xmlBufSign;
     __SendXmlMsgFunc sendXmlMsgFunc = (__SendXmlMsgFunc)sendXmlMsg;
 
@@ -256,27 +256,29 @@ void SendXmlMessage(string receiver, string xml, string path, QWORD type)
     char buff2[0x500] = { 0 };
     char nullBuf[0x1C] = { 0 };
 
-    DWORD pBuf = reinterpret_cast<DWORD>(&buff);
-    DWORD pBuf2 = reinterpret_cast<DWORD>(&buff2);
+    QWORD pBuf = reinterpret_cast<QWORD>(&buff);
+    QWORD pBuf2 = reinterpret_cast<QWORD>(&buff2);
 
 
     funcNew(pBuf);
+
     funcNew(pBuf2);
 
-    DWORD sbuf[4] = { 0,0,0, 0 };
+    QWORD sbuf[4] = { 0,0,0, 0 };
 
-    DWORD sign = xmlBufSignFunc(pBuf2, reinterpret_cast<DWORD>(&sbuf), 0x1);
+    QWORD sign = xmlBufSignFunc(pBuf2, reinterpret_cast<QWORD>(&sbuf), 0x1);
 
+    std::wstring output = convertToWString(xml);
 
     WxString* pReceiver = NewWxStringFromStr(receiver);
-    WxString* pXml = NewWxStringFromStr(xml);
+    WxString* pXml = NewWxStringFromWstr(output);
     WxString* pPath = NewWxStringFromStr(path);
 
     WxString* pSender = NewWxStringFromStr(GetSelfWxid());
 
+
     //sendXmlMsgFunc(pBuf, pSender, pReceiver, pXml, pPath, reinterpret_cast<DWORD>(&nullBuf), pType, 0x4, sign, pBuf2);
     sendXmlMsgFunc(pBuf, reinterpret_cast<UINT64>(pSender), reinterpret_cast<UINT64>(pReceiver), reinterpret_cast<UINT64>(pXml), reinterpret_cast<UINT64>(pPath), reinterpret_cast<UINT64>(&nullBuf), type, 0x4, sign, pBuf2);
-
 
     funcFree(reinterpret_cast<UINT64>(&buff));
     funcFree(reinterpret_cast<UINT64>(&buff2));

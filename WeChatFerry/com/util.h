@@ -39,3 +39,4 @@ std::string GetStringByWstrAddr(UINT64 addr);
 void DbgMsg(const char *zcFormat, ...);
 WxString *NewWxStringFromStr(const std::string &str);
 WxString *NewWxStringFromWstr(const std::wstring &ws);
+std::wstring convertToWString(const std::string& input);

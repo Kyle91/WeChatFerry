@@ -36,6 +36,7 @@
 #define URL_SIZE   20
 #define BASE_URL   "tcp://0.0.0.0"
 #define G_BUF_SIZE (16 * 1024 * 1024)
+#define ENABLE_WX_LOG true
 
 namespace fs = std::filesystem;
 
@@ -321,12 +322,13 @@ bool func_send_emotion(char *path, char *receiver, uint8_t *out, size_t *len)
     return true;
 }
 
-#if 0
+
 bool func_send_xml(XmlMsg xml, uint8_t *out, size_t *len)
 {
     Response rsp  = Response_init_default;
     rsp.func      = Functions_FUNC_SEND_XML;
     rsp.which_msg = Response_status_tag;
+
 
     if ((xml.content == NULL) || (xml.receiver == NULL)) {
         LOG_ERROR("Empty content or receiver.");
@@ -349,7 +351,7 @@ bool func_send_xml(XmlMsg xml, uint8_t *out, size_t *len)
 
     return true;
 }
-#endif
+
 
 bool func_send_rich_txt(RichText rt, uint8_t *out, size_t *len)
 {
@@ -844,14 +846,21 @@ static bool dispatcher(uint8_t *in, size_t in_len, uint8_t *out, size_t *out_len
 {
     bool ret            = false;
     Request req         = Request_init_default;
+
     pb_istream_t stream = pb_istream_from_buffer(in, in_len);
+
+
     if (!pb_decode(&stream, Request_fields, &req)) {
         LOG_ERROR("Decoding failed: {}", PB_GET_ERROR(&stream));
         pb_release(Request_fields, &req);
         return false;
     }
 
-    LOG_DEBUG("{:#04x}[{}] length: {}", (uint8_t)req.func, magic_enum::enum_name(req.func), in_len);
+    LOG_INFO("Successfully decoded message. Function ID: {:#04x}, Enum Name: [{}], Length: {}",
+        (uint8_t)req.func, magic_enum::enum_name(req.func), in_len);
+
+    // Verify and log specific fields (e.g., req.msg.xml.type)
+    
 
     switch (req.func) {
         case Functions_FUNC_IS_LOGIN: {
@@ -914,12 +923,10 @@ static bool dispatcher(uint8_t *in, size_t in_len, uint8_t *out, size_t *out_len
             ret = func_send_emotion(req.msg.file.path, req.msg.file.receiver, out, out_len);
             break;
         }
-#if 0
         case Functions_FUNC_SEND_XML: {
             ret = func_send_xml(req.msg.xml, out, out_len);
             break;
         }
-#endif
         case Functions_FUNC_ENABLE_RECV_TXT: {
             ret = func_enable_recv_txt(req.msg.flag, out, out_len);
             break;
@@ -992,6 +999,16 @@ static bool dispatcher(uint8_t *in, size_t in_len, uint8_t *out, size_t *out_len
     return ret;
 }
 
+// 将数据转换为十六进制字符串
+std::string to_hex_string(const uint8_t* data, size_t length) {
+    std::ostringstream oss;
+    oss << std::hex << std::setfill('0');
+    for (size_t i = 0; i < length; ++i) {
+        oss << std::setw(2) << static_cast<int>(data[i]) << " ";
+    }
+    return oss.str();
+}
+
 static int RunServer()
 {
     int rv                 = 0;
@@ -1021,8 +1038,12 @@ static int RunServer()
             LOG_ERROR("cmdSock-nng_recv error: {}", nng_strerror(rv));
             break;
         }
+
+        LOG_INFO("Message content: {}", std::string(reinterpret_cast<char*>(in), in_len));
+        LOG_INFO("Message content (hex): {}", to_hex_string(in, in_len));
+
         try {
-            // LOG_BUFFER(in, in_len);
+            LOG_INFO("try dispatcher");
             if (dispatcher(in, in_len, gBuffer, &out_len)) {
                 LOG_DEBUG("Send data length {}", out_len);
                 // LOG_BUFFER(gBuffer, out_len);
@@ -1039,10 +1060,12 @@ static int RunServer()
                 }
                 // break;
             }
-        } catch (const std::exception &e) {
+        } catch (const std::runtime_error& e) {
+            LOG_ERROR("Caught std::runtime_error: {}", e.what());
+        }catch (const std::exception &e) {
             LOG_ERROR(GB2312ToUtf8(e.what()));
         } catch (...) {
-            LOG_ERROR("Unknow exception.");
+            LOG_ERROR("Caught unknown exception in {} at line {}.", __FILE__, __LINE__);
         }
         nng_free(in, in_len);
     }

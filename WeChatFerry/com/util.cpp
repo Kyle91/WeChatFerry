@@ -7,7 +7,8 @@
 #include <tlhelp32.h>
 #include <vector>
 #include <wchar.h>
-
+#include <regex>
+#include <iostream>
 #include "log.h"
 #include "util.h"
 
@@ -344,4 +345,37 @@ WxString *NewWxStringFromWstr(const wstring &ws)
     p->ptr      = 0;
     p->clen     = 0;
     return p;
+}
+
+// 将 \u 转义的 UTF-16 代理对转换为实际的表情符号
+std::wstring parseUnicodeString(const std::string& str) {
+    std::wstring result;
+    std::regex unicodeRegex(R"(\\u([0-9a-fA-F]{4}))");
+    std::sregex_iterator it(str.begin(), str.end(), unicodeRegex);
+    std::sregex_iterator end;
+
+    size_t lastPos = 0;
+    for (; it != end; ++it) {
+        std::smatch match = *it;
+        result += String2Wstring(str.substr(lastPos, match.position() - lastPos));
+
+        std::string hexStr = match[1].str();
+        wchar_t wchar = static_cast<wchar_t>(std::stoi(hexStr, nullptr, 16));
+        result += wchar;
+
+        lastPos = match.position() + match.length();
+    }
+
+    result += String2Wstring(str.substr(lastPos));
+    return result;
+}
+
+//如果直接是表情，那就转换一下，如果是编码那就转换一下
+std::wstring convertToWString(const std::string& input) {
+    if (input.find("\\u") != std::string::npos) {
+        return parseUnicodeString(input);
+    }
+    else {
+        return String2Wstring(input);
+    }
 }
