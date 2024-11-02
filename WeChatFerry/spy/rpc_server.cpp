@@ -36,7 +36,7 @@
 #define URL_SIZE   20
 #define BASE_URL   "tcp://0.0.0.0"
 #define G_BUF_SIZE (16 * 1024 * 1024)
-#define ENABLE_WX_LOG true
+#define ENABLE_WX_LOG false
 
 namespace fs = std::filesystem;
 
@@ -436,49 +436,56 @@ static void PushMessage()
     static uint8_t buffer[G_BUF_SIZE] = { 0 };
 
     int rv;
-    Response rsp  = Response_init_default;
-    rsp.func      = Functions_FUNC_ENABLE_RECV_TXT;
+    Response rsp = Response_init_default;
+    rsp.func = Functions_FUNC_ENABLE_RECV_TXT;
     rsp.which_msg = Response_wxmsg_tag;
-
-    pb_ostream_t stream = pb_ostream_from_buffer(buffer, G_BUF_SIZE);
 
     char url[URL_SIZE + 1] = { 0 };
     sprintf_s(url, URL_SIZE, "%s:%d", BASE_URL, lport + 1);
-    if ((rv = nng_pair0_open(&msgSock)) != 0) {
-        LOG_ERROR("nng_pair0_open error {}", nng_strerror(rv));
-        return;
-    }
 
-    if ((rv = nng_listen(msgSock, url, NULL, 0)) != 0) {
-        LOG_ERROR("nng_listen error {}", nng_strerror(rv));
-        return;
-    }
+    auto startListening = [&]() -> bool {
+        if ((rv = nng_pair0_open(&msgSock)) != 0) {
+            LOG_ERROR("nng_pair0_open error {}", nng_strerror(rv));
+            return false;
+        }
 
-    LOG_INFO("MSG Server listening on {}", url);
-    if ((rv = nng_setopt_ms(msgSock, NNG_OPT_SENDTIMEO, 2000)) != 0) {
-        LOG_ERROR("nng_setopt_ms: {}", nng_strerror(rv));
-        return;
-    }
+        if ((rv = nng_listen(msgSock, url, NULL, 0)) != 0) {
+            LOG_ERROR("nng_listen error {}", nng_strerror(rv));
+            nng_close(msgSock);
+            return false;
+        }
+
+        LOG_INFO("MSG Server listening on {}", url);
+        if ((rv = nng_setopt_ms(msgSock, NNG_OPT_SENDTIMEO, 2000)) != 0) {
+            LOG_ERROR("nng_setopt_ms error: {}", nng_strerror(rv));
+            nng_close(msgSock);
+            return false;
+        }
+        return true;
+        };
+
+    if (!startListening()) return;
 
     while (gIsListening) {
         unique_lock<mutex> lock(gMutex);
         if (gCV.wait_for(lock, chrono::milliseconds(1000), []() { return !gMsgQueue.empty(); })) {
             while (!gMsgQueue.empty()) {
-                auto wxmsg             = gMsgQueue.front();
-                rsp.msg.wxmsg.id       = wxmsg.id;
-                rsp.msg.wxmsg.is_self  = wxmsg.is_self;
+                auto wxmsg = gMsgQueue.front();
+                rsp.msg.wxmsg.id = wxmsg.id;
+                rsp.msg.wxmsg.is_self = wxmsg.is_self;
                 rsp.msg.wxmsg.is_group = wxmsg.is_group;
-                rsp.msg.wxmsg.type     = wxmsg.type;
-                rsp.msg.wxmsg.ts       = wxmsg.ts;
-                rsp.msg.wxmsg.roomid   = (char *)wxmsg.roomid.c_str();
-                rsp.msg.wxmsg.content  = (char *)wxmsg.content.c_str();
-                rsp.msg.wxmsg.sender   = (char *)wxmsg.sender.c_str();
-                rsp.msg.wxmsg.sign     = (char *)wxmsg.sign.c_str();
-                rsp.msg.wxmsg.thumb    = (char *)wxmsg.thumb.c_str();
-                rsp.msg.wxmsg.extra    = (char *)wxmsg.extra.c_str();
-                rsp.msg.wxmsg.xml      = (char *)wxmsg.xml.c_str();
+                rsp.msg.wxmsg.type = wxmsg.type;
+                rsp.msg.wxmsg.ts = wxmsg.ts;
+                rsp.msg.wxmsg.roomid = (char*)wxmsg.roomid.c_str();
+                rsp.msg.wxmsg.content = (char*)wxmsg.content.c_str();
+                rsp.msg.wxmsg.sender = (char*)wxmsg.sender.c_str();
+                rsp.msg.wxmsg.sign = (char*)wxmsg.sign.c_str();
+                rsp.msg.wxmsg.thumb = (char*)wxmsg.thumb.c_str();
+                rsp.msg.wxmsg.extra = (char*)wxmsg.extra.c_str();
+                rsp.msg.wxmsg.xml = (char*)wxmsg.xml.c_str();
                 gMsgQueue.pop();
-                LOG_DEBUG("Push msg: {}", wxmsg.content);
+                LOG_INFO("Push msg: {}", wxmsg.content);
+
                 pb_ostream_t stream = pb_ostream_from_buffer(buffer, G_BUF_SIZE);
                 if (!pb_encode(&stream, Response_fields, &rsp)) {
                     LOG_ERROR("Encoding failed: {}", PB_GET_ERROR(&stream));
@@ -488,13 +495,21 @@ static void PushMessage()
                 rv = nng_send(msgSock, buffer, stream.bytes_written, 0);
                 if (rv != 0) {
                     LOG_ERROR("msgSock-nng_send: {}", nng_strerror(rv));
+                    LOG_WARN("Client disconnected, restarting listener...");
+                    nng_close(msgSock);  // Close existing socket
+                    if (!startListening()) {
+                        LOG_ERROR("Failed to restart MSG Server listener.");
+                        return;
+                    }
+                    break;  // Exit the inner while loop to restart the main loop
                 }
-                LOG_DEBUG("Send data length {}", stream.bytes_written);
+                //LOG_INFO("Send data length {}", stream.bytes_written);
             }
         }
     }
     nng_close(msgSock);
 }
+
 
 bool func_enable_recv_txt(bool pyq, uint8_t *out, size_t *len)
 {
@@ -856,8 +871,8 @@ static bool dispatcher(uint8_t *in, size_t in_len, uint8_t *out, size_t *out_len
         return false;
     }
 
-    LOG_INFO("Successfully decoded message. Function ID: {:#04x}, Enum Name: [{}], Length: {}",
-        (uint8_t)req.func, magic_enum::enum_name(req.func), in_len);
+   /* LOG_INFO("Successfully decoded message. Function ID: {:#04x}, Enum Name: [{}], Length: {}",
+        (uint8_t)req.func, magic_enum::enum_name(req.func), in_len);*/
 
     // Verify and log specific fields (e.g., req.msg.xml.type)
     
@@ -1034,18 +1049,22 @@ static int RunServer()
     while (lIsRunning) {
         uint8_t *in = NULL;
         size_t in_len, out_len = G_BUF_SIZE;
-        if ((rv = nng_recv(cmdSock, &in, &in_len, NNG_FLAG_ALLOC)) != 0) {
-            LOG_ERROR("cmdSock-nng_recv error: {}", nng_strerror(rv));
-            break;
+        
+        rv = nng_recv(cmdSock, &in, &in_len, NNG_FLAG_ALLOC);
+        if (rv != 0) {
+            if (rv == NNG_ECLOSED) {
+                LOG_WARN("Client disconnected. Waiting for reconnection...");
+                continue;  // 客户端断开后等待重新连接
+            }
+            else {
+                LOG_ERROR("cmdSock-nng_recv error: {}", nng_strerror(rv));
+                break;
+            }
         }
 
-        LOG_INFO("Message content: {}", std::string(reinterpret_cast<char*>(in), in_len));
-        LOG_INFO("Message content (hex): {}", to_hex_string(in, in_len));
-
         try {
-            LOG_INFO("try dispatcher");
             if (dispatcher(in, in_len, gBuffer, &out_len)) {
-                LOG_DEBUG("Send data length {}", out_len);
+                //LOG_DEBUG("Send data length {}", out_len);
                 // LOG_BUFFER(gBuffer, out_len);
                 rv = nng_send(cmdSock, gBuffer, out_len, 0);
                 if (rv != 0) {
