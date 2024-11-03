@@ -31,7 +31,7 @@ extern QWORD g_WeChatWinDllAddr;
 #define OS_RECV_MSG_THUMB   0x280
 #define OS_RECV_MSG_EXTRA   0x2A0
 #define OS_RECV_MSG_XML     0x308
-#define OS_RECV_MSG_CALL    0x2147680
+#define OS_RECV_MSG_CALL    0x213ED90 //0x2147680
 #define OS_PYQ_MSG_START    0x30
 #define OS_PYQ_MSG_END      0x38
 #define OS_PYQ_MSG_TS       0x38
@@ -96,6 +96,7 @@ MsgTypes_t GetMsgTypes()
 
 static QWORD DispatchMsg(QWORD arg1, QWORD arg2)
 {
+    LOG_INFO("ready DispatchMsg");
     WxMsg_t wxMsg = { 0 };
     try {
         wxMsg.id      = GET_QWORD(arg2 + OS_RECV_MSG_ID);
@@ -106,7 +107,10 @@ static QWORD DispatchMsg(QWORD arg1, QWORD arg2)
         wxMsg.sign    = GetStringByWstrAddr(arg2 + OS_RECV_MSG_SIGN);
         wxMsg.xml     = GetStringByWstrAddr(arg2 + OS_RECV_MSG_XML);
 
+
         string roomid = GetStringByWstrAddr(arg2 + OS_RECV_MSG_ROOMID);
+
+        LOG_INFO("DispatchMsg,{}，{},{}", wxMsg.is_self, roomid, wxMsg.content);
         wxMsg.roomid  = roomid;
         if (roomid.find("@chatroom") != string::npos) { // 群 ID 的格式为 xxxxxxxxxxx@chatroom
             wxMsg.is_group = true;
