@@ -96,7 +96,6 @@ MsgTypes_t GetMsgTypes()
 
 static QWORD DispatchMsg(QWORD arg1, QWORD arg2)
 {
-    LOG_INFO("ready DispatchMsg");
     WxMsg_t wxMsg = { 0 };
     try {
         wxMsg.id      = GET_QWORD(arg2 + OS_RECV_MSG_ID);
@@ -110,7 +109,7 @@ static QWORD DispatchMsg(QWORD arg1, QWORD arg2)
 
         string roomid = GetStringByWstrAddr(arg2 + OS_RECV_MSG_ROOMID);
 
-        LOG_INFO("DispatchMsg,{}，{},{}", wxMsg.is_self, roomid, wxMsg.content);
+        //LOG_INFO("DispatchMsg,{}，{},{}", wxMsg.is_self, roomid, wxMsg.content);
         wxMsg.roomid  = roomid;
         if (roomid.find("@chatroom") != string::npos) { // 群 ID 的格式为 xxxxxxxxxxx@chatroom
             wxMsg.is_group = true;

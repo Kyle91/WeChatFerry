@@ -76,6 +76,7 @@ bool func_get_self_wxid(uint8_t *out, size_t *len)
     rsp.func      = Functions_FUNC_GET_SELF_WXID;
     rsp.which_msg = Response_str_tag;
 
+
     string wxid = GetSelfWxid();
     rsp.msg.str = (char *)wxid.c_str();
 
@@ -484,7 +485,7 @@ static void PushMessage()
                 rsp.msg.wxmsg.extra = (char*)wxmsg.extra.c_str();
                 rsp.msg.wxmsg.xml = (char*)wxmsg.xml.c_str();
                 gMsgQueue.pop();
-                LOG_INFO("Push msg: {}", wxmsg.content);
+                //LOG_INFO("Push msg: {}", wxmsg.content);
 
                 pb_ostream_t stream = pb_ostream_from_buffer(buffer, G_BUF_SIZE);
                 if (!pb_encode(&stream, Response_fields, &rsp)) {
@@ -871,7 +872,7 @@ static bool dispatcher(uint8_t *in, size_t in_len, uint8_t *out, size_t *out_len
         return false;
     }
 
-   /* LOG_INFO("Successfully decoded message. Function ID: {:#04x}, Enum Name: [{}], Length: {}",
+   /*LOG_INFO("Successfully decoded message. Function ID: {:#04x}, Enum Name: [{}], Length: {}",
         (uint8_t)req.func, magic_enum::enum_name(req.func), in_len);*/
 
     // Verify and log specific fields (e.g., req.msg.xml.type)
