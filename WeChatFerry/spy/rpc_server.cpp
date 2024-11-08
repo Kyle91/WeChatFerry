@@ -43,9 +43,13 @@ namespace fs = std::filesystem;
 bool gIsLogging      = false;
 bool gIsListening    = false;
 bool gIsListeningPyq = false;
-mutex gMutex;
-condition_variable gCV;
+bool gIsLoginUrl     = false;
+
+mutex gMutex, gQrCodeMutex;
+condition_variable gCV, gQrCodeCv;
 queue<WxMsg_t> gMsgQueue;
+
+string gLoginQrCodeUrl;
 
 static int lport       = 0;
 static DWORD lThreadId = 0;
@@ -254,7 +258,7 @@ bool func_send_img(char *path, char *receiver, uint8_t *out, size_t *len)
     if ((path == NULL) || (receiver == NULL)) {
         LOG_ERROR("Empty path or receiver.");
         rsp.msg.status = -1;
-    } else if (!fs::exists(path)) {
+    } else if (!fs::exists(String2Wstring(path))) {
         LOG_ERROR("Path does not exists: {}", path);
         rsp.msg.status = -2;
     } else {
@@ -281,11 +285,11 @@ bool func_send_file(char *path, char *receiver, uint8_t *out, size_t *len)
     if ((path == NULL) || (receiver == NULL)) {
         LOG_ERROR("Empty path or receiver.");
         rsp.msg.status = -1;
-    } else if (!fs::exists(path)) {
+    } else if (!fs::exists(String2Wstring(path))) {
         LOG_ERROR("Path does not exists: {}", path);
         rsp.msg.status = -2;
     } else {
-        SendImageMessage(receiver, path);
+        SendFileMessage(receiver, path);
         rsp.msg.status = 0;
     }
 
@@ -323,13 +327,11 @@ bool func_send_emotion(char *path, char *receiver, uint8_t *out, size_t *len)
     return true;
 }
 
-
 bool func_send_xml(XmlMsg xml, uint8_t *out, size_t *len)
 {
     Response rsp  = Response_init_default;
     rsp.func      = Functions_FUNC_SEND_XML;
     rsp.which_msg = Response_status_tag;
-
 
     if ((xml.content == NULL) || (xml.receiver == NULL)) {
         LOG_ERROR("Empty content or receiver.");
@@ -338,7 +340,7 @@ bool func_send_xml(XmlMsg xml, uint8_t *out, size_t *len)
         string receiver(xml.receiver);
         string content(xml.content);
         string path(xml.path ? xml.path : "");
-        uint32_t type = (uint32_t)xml.type;
+        uint64_t type = (uint64_t)xml.type;
         SendXmlMessage(receiver, content, path, type);
         rsp.msg.status = 0;
     }
@@ -352,7 +354,6 @@ bool func_send_xml(XmlMsg xml, uint8_t *out, size_t *len)
 
     return true;
 }
-
 
 bool func_send_rich_txt(RichText rt, uint8_t *out, size_t *len)
 {
@@ -653,7 +654,21 @@ bool func_refresh_qrcode(uint8_t *out, size_t *len)
     rsp.func      = Functions_FUNC_REFRESH_QRCODE;
     rsp.which_msg = Response_str_tag;
 
-    rsp.msg.str = (char *)GetLoginUrl().c_str();
+
+    if (!gIsLoginUrl) {
+        ListenLoginQrCode();
+    }
+
+    unique_lock<std::mutex> lock(gQrCodeMutex);
+    gQrCodeCv.wait_for(lock, std::chrono::seconds(15), [] { return !gLoginQrCodeUrl.empty(); });
+
+    if (!gLoginQrCodeUrl.empty()) {
+        rsp.msg.str = (char*)gLoginQrCodeUrl.c_str();  // 将 URL 存入响应
+    }
+    else {
+        LOG_ERROR("QR code URL not received in time.");
+        return false;
+    }
 
     pb_ostream_t stream = pb_ostream_from_buffer(out, *len);
     if (!pb_encode(&stream, Response_fields, &rsp)) {
@@ -872,8 +887,8 @@ static bool dispatcher(uint8_t *in, size_t in_len, uint8_t *out, size_t *out_len
         return false;
     }
 
-   /*LOG_INFO("Successfully decoded message. Function ID: {:#04x}, Enum Name: [{}], Length: {}",
-        (uint8_t)req.func, magic_enum::enum_name(req.func), in_len);*/
+   LOG_INFO("Successfully decoded message. Function ID: {:#04x}, Enum Name: [{}], Length: {}",
+        (uint8_t)req.func, magic_enum::enum_name(req.func), in_len);
 
     // Verify and log specific fields (e.g., req.msg.xml.type)
     

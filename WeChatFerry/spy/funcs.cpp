@@ -348,8 +348,19 @@ int RevokeMsg(QWORD id)
 
 string GetLoginUrl()
 {
-    char url[] = "方法还没实现";
-    return "http://weixin.qq.com/x/" + string(url);
+    LOG_INFO("GetLoginUrl");
+    LPVOID targetAddress = reinterpret_cast<LPBYTE>(g_WeChatWinDllAddr) + 0x23b7730;
+
+    // 假设 a2 指向一个字符串，直接读取内容
+    char* dataPtr = *reinterpret_cast<char**>(targetAddress); // 读取 a2 指针内容
+    if (!dataPtr) {
+        LOG_ERROR("Failed to get login url");
+        return "error";
+    }
+
+    // 读取字符串内容
+    std::string data(dataPtr, 22);
+    return "http://weixin.qq.com/x/" + data;
 }
 
 int ReceiveTransfer(string wxid, string transferid, string transactionid)

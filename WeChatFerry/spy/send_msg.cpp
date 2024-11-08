@@ -1,4 +1,5 @@
-﻿#include "framework.h"
+﻿
+#include "framework.h"
 #include <sstream>
 #include <vector>
 
@@ -14,21 +15,21 @@ extern string GetSelfWxid(); // Defined in spy.cpp
 
 #define SRTM_SIZE 0x3F0
 
-#define OS_NEW             0x1b5e140
-#define OS_FREE            0x1b55850
-#define OS_SEND_MSG_MGR    0x1ca4f70
-#define OS_SEND_TEXT       0x22c6b60
-#define OS_SEND_IMAGE      0x22bc2f0
-#define OS_GET_APP_MSG_MGR 0x1b557d0
-#define OS_SEND_FILE       0x20d0230
-#define OS_RTM_NEW         0x1b5d690
-#define OS_RTM_FREE        0x1b5ca60
-#define OS_SEND_RICH_TEXT  0x20da210
-#define OS_SEND_PAT_MSG    0x2caec00
+#define OS_NEW             0x1B5E140
+#define OS_FREE            0x1B55850
+#define OS_SEND_MSG_MGR    0x1B53FD0
+#define OS_SEND_TEXT       0x22C6B60
+#define OS_SEND_IMAGE      0x22BC2F0
+#define OS_GET_APP_MSG_MGR 0x1B557D0
+#define OS_SEND_FILE       0x20D0230
+#define OS_RTM_NEW         0x1B5D690
+#define OS_RTM_FREE        0x1B5CA60
+#define OS_SEND_RICH_TEXT  0x20DA210
+#define OS_SEND_PAT_MSG    0x2CAEC00
 #define OS_FORWARD_MSG     0x22C60E0
-#define OS_GET_EMOTION_MGR 0x1bcef10
-#define OS_SEND_EMOTION    0x21b52d5
-#define OS_XML_BUGSIGN     0x24F0D70
+#define OS_GET_EMOTION_MGR 0x1BCEF10
+#define OS_SEND_EMOTION    0x21B52D5
+#define OS_XML_BUFSIGN     0x24F0D70
 #define OS_SEND_XML        0x20CF360
 
 typedef QWORD (*New_t)(QWORD);
@@ -45,9 +46,8 @@ typedef QWORD (*ForwardMsg_t)(QWORD, QWORD, QWORD, QWORD);
 typedef QWORD (*GetEmotionMgr_t)();
 typedef QWORD (*SendEmotion_t)(QWORD, QWORD, QWORD, QWORD, QWORD, QWORD, QWORD, QWORD);
 
-
-typedef QWORD(*__XmlBufSignFunc)(QWORD, QWORD, QWORD);
-typedef QWORD(*__SendXmlMsgFunc)(QWORD, QWORD, QWORD, QWORD, QWORD, QWORD, QWORD, QWORD, QWORD, QWORD);
+typedef QWORD (*XmlBufSign_t)(QWORD, QWORD, QWORD);
+typedef QWORD (*SendXmlMsg_t)(QWORD, QWORD, QWORD, QWORD, QWORD, QWORD, QWORD, QWORD, QWORD, QWORD);
 
 void SendTextMessage(string wxid, string msg, string atWxids)
 {
@@ -234,39 +234,31 @@ void SendEmotionMessage(string wxid, string path)
     SendEmotion(mgr, (QWORD)pWxPath, (QWORD)buff, (QWORD)pWxWxid, 2, (QWORD)buff, 0, (QWORD)buff);
 }
 
-
-void SendXmlMessage(string receiver, string xml, string path, int type)
+void SendXmlMessage(string receiver, string xml, string path, QWORD type)
 {
     if (g_WeChatWinDllAddr == 0) {
         return;
     }
 
-    New_t funcNew = (New_t)(g_WeChatWinDllAddr + OS_NEW);
+    New_t funcNew   = (New_t)(g_WeChatWinDllAddr + OS_NEW);
     Free_t funcFree = (Free_t)(g_WeChatWinDllAddr + OS_FREE);
 
+    XmlBufSign_t xmlBufSign = (XmlBufSign_t)(g_WeChatWinDllAddr + OS_XML_BUFSIGN);
+    SendXmlMsg_t sendXmlMsg = (SendXmlMsg_t)(g_WeChatWinDllAddr + OS_SEND_XML);
 
-    QWORD xmlBufSign = g_WeChatWinDllAddr + OS_XML_BUGSIGN;
-    QWORD sendXmlMsg = g_WeChatWinDllAddr + OS_SEND_XML;
-
-    __XmlBufSignFunc xmlBufSignFunc = (__XmlBufSignFunc)xmlBufSign;
-    __SendXmlMsgFunc sendXmlMsgFunc = (__SendXmlMsgFunc)sendXmlMsg;
-
-
-    char buff[0x500] = { 0 };
-    char buff2[0x500] = { 0 };
+    char buff[0x500]   = { 0 };
+    char buff2[0x500]  = { 0 };
     char nullBuf[0x1C] = { 0 };
 
-    QWORD pBuf = reinterpret_cast<QWORD>(&buff);
-    QWORD pBuf2 = reinterpret_cast<QWORD>(&buff2);
-
+    QWORD pBuf  = (QWORD)(&buff);
+    QWORD pBuf2 = (QWORD)(&buff2);
 
     funcNew(pBuf);
-
     funcNew(pBuf2);
 
-    QWORD sbuf[4] = { 0,0,0, 0 };
+    QWORD sbuf[4] = { 0, 0, 0, 0 };
 
-    QWORD sign = xmlBufSignFunc(pBuf2, reinterpret_cast<QWORD>(&sbuf), 0x1);
+    QWORD sign = xmlBufSign(pBuf2, (QWORD)(&sbuf), 0x1);
 
     std::wstring output = convertToWString(xml);
 
@@ -276,11 +268,9 @@ void SendXmlMessage(string receiver, string xml, string path, int type)
 
     WxString* pSender = NewWxStringFromStr(GetSelfWxid());
 
+    sendXmlMsg(pBuf, (QWORD)pSender, (QWORD)pReceiver, (QWORD)pXml, (QWORD)pPath, (QWORD)(&nullBuf), type, 0x4, sign,
+               pBuf2);
 
-    //sendXmlMsgFunc(pBuf, pSender, pReceiver, pXml, pPath, reinterpret_cast<DWORD>(&nullBuf), pType, 0x4, sign, pBuf2);
-    sendXmlMsgFunc(pBuf, reinterpret_cast<UINT64>(pSender), reinterpret_cast<UINT64>(pReceiver), reinterpret_cast<UINT64>(pXml), reinterpret_cast<UINT64>(pPath), reinterpret_cast<UINT64>(&nullBuf), type, 0x4, sign, pBuf2);
-
-    funcFree(reinterpret_cast<UINT64>(&buff));
-    funcFree(reinterpret_cast<UINT64>(&buff2));
+    funcFree((QWORD)&buff);
+    funcFree((QWORD)&buff2);
 }
-

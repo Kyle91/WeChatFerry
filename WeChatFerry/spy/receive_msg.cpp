@@ -12,10 +12,11 @@
 #include "util.h"
 
 // Defined in rpc_server.cpp
-extern bool gIsLogging, gIsListening, gIsListeningPyq;
-extern mutex gMutex;
-extern condition_variable gCV;
+extern bool gIsLogging, gIsListening, gIsListeningPyq, gIsLoginUrl;
+extern mutex gMutex, gQrCodeMutex;
+extern condition_variable gCV, gQrCodeCv;
 extern queue<WxMsg_t> gMsgQueue;
+extern string gLoginQrCodeUrl;
 
 // Defined in spy.cpp
 extern QWORD g_WeChatWinDllAddr;
@@ -31,19 +32,21 @@ extern QWORD g_WeChatWinDllAddr;
 #define OS_RECV_MSG_THUMB   0x280
 #define OS_RECV_MSG_EXTRA   0x2A0
 #define OS_RECV_MSG_XML     0x308
-#define OS_RECV_MSG_CALL    0x213ED90 //0x2147680
+#define OS_RECV_MSG_CALL    0x213ED90
 #define OS_PYQ_MSG_START    0x30
 #define OS_PYQ_MSG_END      0x38
 #define OS_PYQ_MSG_TS       0x38
 #define OS_PYQ_MSG_XML      0x9B8
 #define OS_PYQ_MSG_SENDER   0x18
 #define OS_PYQ_MSG_CONTENT  0x48
-#define OS_PYQ_MSG_CALL     0x2e42c90
-#define OS_WXLOG            0x2613d20
+#define OS_PYQ_MSG_CALL     0x2E42C90
+#define OS_WXLOG            0x2613D20
+#define OS_LOGIN_URL        0x23b7730
 
 typedef QWORD (*RecvMsg_t)(QWORD, QWORD);
 typedef QWORD (*WxLog_t)(QWORD, QWORD, QWORD, QWORD, QWORD, QWORD, QWORD, QWORD, QWORD, QWORD, QWORD, QWORD);
 typedef QWORD (*RecvPyq_t)(QWORD, QWORD, QWORD);
+typedef void(*LoginQr_t)(__int64, __int64*);
 
 static RecvMsg_t funcRecvMsg = nullptr;
 static RecvMsg_t realRecvMsg = nullptr;
@@ -51,6 +54,8 @@ static WxLog_t funcWxLog     = nullptr;
 static WxLog_t realWxLog     = nullptr;
 static RecvPyq_t funcRecvPyq = nullptr;
 static RecvPyq_t realRecvPyq = nullptr;
+static LoginQr_t funcLoginQr = nullptr;
+static LoginQr_t realLoginQr = nullptr;
 static bool isMH_Initialized = false;
 
 MsgTypes_t GetMsgTypes()
@@ -106,10 +111,7 @@ static QWORD DispatchMsg(QWORD arg1, QWORD arg2)
         wxMsg.sign    = GetStringByWstrAddr(arg2 + OS_RECV_MSG_SIGN);
         wxMsg.xml     = GetStringByWstrAddr(arg2 + OS_RECV_MSG_XML);
 
-
         string roomid = GetStringByWstrAddr(arg2 + OS_RECV_MSG_ROOMID);
-
-        //LOG_INFO("DispatchMsg,{}，{},{}", wxMsg.is_self, roomid, wxMsg.content);
         wxMsg.roomid  = roomid;
         if (roomid.find("@chatroom") != string::npos) { // 群 ID 的格式为 xxxxxxxxxxx@chatroom
             wxMsg.is_group = true;
@@ -379,3 +381,75 @@ void UnListenPyq()
         return;
     }
 }
+
+static void LoginQr(__int64 a1, __int64* a2) {
+    if (a2 && a2[0]) {  // 增加空指针检查
+        char* dataPtr = reinterpret_cast<char*>(a2[0]);
+        std::string loginUrl(dataPtr, 22); //读取内容
+        LOG_INFO("Login QR Code URL: {}", loginUrl);
+
+        {
+            std::lock_guard<std::mutex> lock(gQrCodeMutex);
+            gLoginQrCodeUrl = "http://weixin.qq.com/x/" + loginUrl;  // 更新二维码 URL
+        }
+
+        gQrCodeCv.notify_all(); // 通知等待的线程
+    }
+
+    realLoginQr(a1, a2);
+
+    UnListenLoginQrCode();
+}
+
+void ListenLoginQrCode()
+{
+    MH_STATUS status = MH_UNKNOWN;
+    if (gIsLoginUrl) {
+        LOG_WARN("gIsLoginUrl");
+        return;
+    }
+    LoginQr_t funcLoginQr = (LoginQr_t)(g_WeChatWinDllAddr + OS_LOGIN_URL);
+
+    status = InitializeHook();
+    if (status != MH_OK) {
+        LOG_ERROR("MH_Initialize failed: {}", to_string(status));
+        return;
+    }
+
+    status = MH_CreateHook(funcLoginQr, &LoginQr, reinterpret_cast<LPVOID*>(&realLoginQr));
+    if (status != MH_OK) {
+        LOG_ERROR("MH_CreateHook failed: {}", to_string(status));
+        return;
+    }
+
+    status = MH_EnableHook(funcLoginQr);
+    if (status != MH_OK) {
+        LOG_ERROR("MH_EnableHook failed: {}", to_string(status));
+        return;
+    }
+    gIsLoginUrl = true;
+}
+
+void UnListenLoginQrCode()
+{
+    MH_STATUS status = MH_UNKNOWN;
+    if (!gIsLoginUrl) {
+        return;
+    }
+
+    status = MH_DisableHook(funcLoginQr);
+    if (status != MH_OK) {
+        LOG_ERROR("MH_DisableHook failed: {}", to_string(status));
+        return;
+    }
+
+    gIsLoginUrl = false;
+
+    status = UninitializeHook();
+    if (status != MH_OK) {
+        LOG_ERROR("MH_Uninitialize failed: {}", to_string(status));
+        return;
+    }
+}
+
+
