@@ -36,7 +36,7 @@
 #define URL_SIZE   20
 #define BASE_URL   "tcp://0.0.0.0"
 #define G_BUF_SIZE (16 * 1024 * 1024)
-#define ENABLE_WX_LOG false
+#define ENABLE_WX_LOG true
 
 namespace fs = std::filesystem;
 
