@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include <map>
 #include <string>
@@ -48,6 +48,9 @@ typedef struct {
     string thumb;
     string extra;
     string xml;
+    string member_id;            // 进群或退群人id
+    string member_name;        // 进群或退群人昵称
+    string inviter;         //邀请人
 } WxMsg_t;
 
 typedef struct {

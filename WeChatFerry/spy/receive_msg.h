@@ -10,4 +10,6 @@ void ListenMessage();
 void UnListenMessage();
 void ListenLoginQrCode();
 void UnListenLoginQrCode();
+void ListenMemberUpdate();
+void UnListenMemberUpdate();
 MsgTypes_t GetMsgTypes();

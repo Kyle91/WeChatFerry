@@ -10,9 +10,11 @@
 #include "receive_msg.h"
 #include "user_info.h"
 #include "util.h"
+#include "rpc_server.h"
+#include "member_add_mgmt.h"
 
 // Defined in rpc_server.cpp
-extern bool gIsLogging, gIsListening, gIsListeningPyq, gIsLoginUrl;
+extern bool gIsLogging, gIsListening, gIsListeningPyq, gIsLoginUrl, gIsListenMemberUpdate;
 extern mutex gMutex, gQrCodeMutex;
 extern condition_variable gCV, gQrCodeCv;
 extern queue<WxMsg_t> gMsgQueue;
@@ -42,11 +44,13 @@ extern QWORD g_WeChatWinDllAddr;
 #define OS_PYQ_MSG_CALL     0x2E42C90
 #define OS_WXLOG            0x2613D20
 #define OS_LOGIN_URL        0x23b7730
+#define OS_MEMBER_UPDATE    0x2162bc0
 
 typedef QWORD (*RecvMsg_t)(QWORD, QWORD);
 typedef QWORD (*WxLog_t)(QWORD, QWORD, QWORD, QWORD, QWORD, QWORD, QWORD, QWORD, QWORD, QWORD, QWORD, QWORD);
 typedef QWORD (*RecvPyq_t)(QWORD, QWORD, QWORD);
 typedef void(*LoginQr_t)(__int64, __int64*);
+typedef QWORD (*MemberUpdate_t)(__int64 a1, __int64 a2, int a3, __int64 a4, __int64 a5, __int64 a6, QWORD* a7);
 
 static RecvMsg_t funcRecvMsg = nullptr;
 static RecvMsg_t realRecvMsg = nullptr;
@@ -56,6 +60,8 @@ static RecvPyq_t funcRecvPyq = nullptr;
 static RecvPyq_t realRecvPyq = nullptr;
 static LoginQr_t funcLoginQr = nullptr;
 static LoginQr_t realLoginQr = nullptr;
+static MemberUpdate_t funcMemberUpdate = nullptr;
+static MemberUpdate_t realMemberUpdate = nullptr;
 static bool isMH_Initialized = false;
 
 MsgTypes_t GetMsgTypes()
@@ -139,6 +145,13 @@ static QWORD DispatchMsg(QWORD arg1, QWORD arg2)
         if (!wxMsg.extra.empty()) {
             wxMsg.extra = GetHomePath() + wxMsg.extra;
             replace(wxMsg.extra.begin(), wxMsg.extra.end(), '\\', '/');
+        }
+
+        if (wxMsg.type == 10000) {
+            if (wxMsg.content.find("加入了群聊") != std::string::npos) {
+                auto& member_mgmt = MemberAddMgmt::GetInstance();
+                member_mgmt.AddSystemMessage(wxMsg.roomid, wxMsg.content);
+            }
         }
     } catch (const std::exception &e) {
         LOG_ERROR(GB2312ToUtf8(e.what()));
@@ -452,4 +465,142 @@ void UnListenLoginQrCode()
     }
 }
 
+MemberEntry ParseMemberInfo(__int64 memberAddr) {
+    MemberEntry member = {};
+    try {
+        uint32_t mask = *reinterpret_cast<uint32_t*>(memberAddr + 92);
+
+        if (mask & 1) {
+            __int64 field1Ptr = *reinterpret_cast<__int64*>(memberAddr + 8);
+            if (field1Ptr != 0) {
+                member.member_id = ReadAdjustedString(field1Ptr);
+            }
+        }
+
+        if (mask & 2) {
+            __int64 field2Ptr = *reinterpret_cast<__int64*>(memberAddr + 16);
+            if (field2Ptr != 0) {
+                member.member_nickname = ReadAdjustedString(field2Ptr);
+            }
+        }
+
+        /*if (mask & 8) {
+            __int64 field3Ptr = *reinterpret_cast<__int64*>(memberAddr + 32);
+            if (field3Ptr != 0) {
+                string hd = ReadAdjustedString(field3Ptr);
+                LOG_INFO("ParseMemberInfo hd {}", hd);
+                member.avatarHd = _strdup(hd.c_str());
+            }
+        }
+
+        if (mask & 0x10) {
+            __int64 field4Ptr = *reinterpret_cast<__int64*>(memberAddr + 40);
+            if (field4Ptr != 0) {
+                string hd = ReadAdjustedString(field4Ptr);
+                LOG_INFO("ParseMemberInfo avatar {}", hd);
+                member.avatar = _strdup(hd.c_str());
+            }
+        }*/
+
+        if (mask & 0x40) {
+            __int64 field5Ptr = *reinterpret_cast<__int64*>(memberAddr + 48);
+            if (field5Ptr != 0) {
+                member.inviter = ReadAdjustedString(field5Ptr);
+            }
+        }
+    }
+    catch (const std::exception& e) {
+        LOG_ERROR("Error parsing member info: {}", e.what());
+        throw; // 如果需要让上层处理错误，可以抛出异常
+    }
+    catch (...) {
+        LOG_ERROR("Unknown error while parsing member info.");
+        throw;
+    }
+    return member;
+}
+
+static QWORD ProcessMemberUpdate(__int64 a1, __int64 a2, int a3, __int64 a4, __int64 a5, __int64 a6, QWORD* a7) {
+    auto& member_mgmt = MemberAddMgmt::GetInstance();
+    try {
+        std::string groupID = ReadUtf16String(*reinterpret_cast<__int64*>(a2));
+
+        int memberUpdateFlag = *reinterpret_cast<int*>(a4 + 32);
+        if (memberUpdateFlag > 0) {
+            uint32_t arrayLength = *reinterpret_cast<uint32_t*>(a4 + 32);
+            if (arrayLength > 0 && arrayLength < 10) { // Add a reasonable limit
+                __int64 arrayBaseAddr = *reinterpret_cast<__int64*>(a4 + 8);
+                for (uint32_t i = 0; i < arrayLength; ++i) {
+                    __int64 memberAddr = *reinterpret_cast<__int64*>(arrayBaseAddr + i * 8);
+                    MemberEntry member = ParseMemberInfo(memberAddr);
+                    member_mgmt.AddMemberEntry(groupID,member);
+                }
+            }
+        }
+    }
+    catch (const std::exception& e) {
+        LOG_ERROR("Error processing member update: {}", e.what());
+        return realMemberUpdate(a1, a2, a3, a4, a5, a6, a7);
+    }
+    catch (...) {
+        LOG_ERROR("Unknown error processing member update.");
+        return realMemberUpdate(a1, a2, a3, a4, a5, a6, a7);
+    }
+    return realMemberUpdate(a1, a2, a3, a4, a5, a6, a7);
+
+}
+
+// 这里是群成员信息变动
+void ListenMemberUpdate()
+{
+    MH_STATUS status = MH_UNKNOWN;
+    if (gIsListenMemberUpdate) {
+        LOG_WARN("gIsListenMemberUpdate");
+        return;
+    }
+    MemberUpdate_t funcMemberUpdate = (MemberUpdate_t)(g_WeChatWinDllAddr + OS_MEMBER_UPDATE);
+
+    status = InitializeHook();
+    if (status != MH_OK) {
+        LOG_ERROR("MH_Initialize failed: {}", to_string(status));
+        return;
+    }
+
+    LOG_INFO("create member update hook");
+
+    status = MH_CreateHook(funcMemberUpdate, &ProcessMemberUpdate, reinterpret_cast<LPVOID*>(&realMemberUpdate));
+    if (status != MH_OK) {
+        LOG_ERROR("MH_CreateHook failed: {}", to_string(status));
+        return;
+    }
+
+    status = MH_EnableHook(funcMemberUpdate);
+    if (status != MH_OK) {
+        LOG_ERROR("MH_EnableHook failed: {}", to_string(status));
+        return;
+    }
+    gIsListenMemberUpdate = true;
+}
+
+void UnListenMemberUpdate()
+{
+    MH_STATUS status = MH_UNKNOWN;
+    if (!gIsLoginUrl) {
+        return;
+    }
+
+    status = MH_DisableHook(funcMemberUpdate);
+    if (status != MH_OK) {
+        LOG_ERROR("MH_DisableHook failed: {}", to_string(status));
+        return;
+    }
+
+    gIsListenMemberUpdate = false;
+
+    status = UninitializeHook();
+    if (status != MH_OK) {
+        LOG_ERROR("MH_Uninitialize failed: {}", to_string(status));
+        return;
+    }
+}
 

@@ -38,6 +38,46 @@ string Wstring2String(wstring ws)
     return s;
 }
 
+string ReadUtf16String(__int64 addr) {
+    if (addr == 0) return ""; // 空指针保护
+
+    wchar_t* ptr = reinterpret_cast<wchar_t*>(addr);
+
+    // 找到字符串的长度
+    size_t length = wcslen(ptr);
+
+    // 分配用于 UTF-8 转换的缓冲区
+    int size_needed = WideCharToMultiByte(CP_UTF8, 0, ptr, static_cast<int>(length), NULL, 0, NULL, NULL);
+    if (size_needed <= 0) return "";
+
+    std::string utf8Str(size_needed, 0);
+    WideCharToMultiByte(CP_UTF8, 0, ptr, static_cast<int>(length), &utf8Str[0], size_needed, NULL, NULL);
+
+    return utf8Str;
+}
+
+
+string ReadAdjustedString(__int64 fieldPtr) {
+    if (fieldPtr == 0) return "";
+
+    // 检查附加字段
+    uint64_t field3 = *reinterpret_cast<uint64_t*>(fieldPtr + 24);
+    __int64 dataPointer = (field3 >= 0x10)
+        ? *reinterpret_cast<__int64*>(fieldPtr)
+        : fieldPtr;
+
+    // 读取长度字段
+    uint64_t dataLength = *reinterpret_cast<uint64_t*>(fieldPtr + 16);
+
+    if (dataPointer == 0 || dataLength == 0) return "";
+
+    char* ptr = reinterpret_cast<char*>(dataPointer);
+
+    // 返回字符串
+    return std::string(ptr, dataLength);
+}
+
+
 string GB2312ToUtf8(const char *gb2312)
 {
     int size_needed = 0;

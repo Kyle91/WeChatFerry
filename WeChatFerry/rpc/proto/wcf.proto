@@ -97,6 +97,9 @@ message WxMsg
     string thumb   = 10;                       // 缩略图
     string extra   = 11;                       // 附加内容
     string xml     = 12;                       // 消息 xml
+    string member_id = 13;            // 进群或退群人id
+    string member_name = 14;        // 进群或退群人昵称
+    string inviter = 15;         //邀请人
 }
 
 message TextMsg

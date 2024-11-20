@@ -32,11 +32,12 @@
 #include "spy_types.h"
 #include "user_info.h"
 #include "util.h"
+#include "member_add_mgmt.h"
 
 #define URL_SIZE   20
 #define BASE_URL   "tcp://0.0.0.0"
 #define G_BUF_SIZE (16 * 1024 * 1024)
-#define ENABLE_WX_LOG true
+#define ENABLE_WX_LOG false
 
 namespace fs = std::filesystem;
 
@@ -44,6 +45,7 @@ bool gIsLogging      = false;
 bool gIsListening    = false;
 bool gIsListeningPyq = false;
 bool gIsLoginUrl     = false;
+bool gIsListenMemberUpdate = false;
 
 mutex gMutex, gQrCodeMutex;
 condition_variable gCV, gQrCodeCv;
@@ -473,6 +475,12 @@ static void PushMessage()
         if (gCV.wait_for(lock, chrono::milliseconds(1000), []() { return !gMsgQueue.empty(); })) {
             while (!gMsgQueue.empty()) {
                 auto wxmsg = gMsgQueue.front();
+                if (wxmsg.type == 10000) {
+                    if (wxmsg.content.find("加入了群聊") != std::string::npos) {
+                        auto& member_mgmt = MemberAddMgmt::GetInstance();
+                        member_mgmt.AddSystemMessage(wxmsg.roomid, wxmsg.content);
+                    }
+                }
                 rsp.msg.wxmsg.id = wxmsg.id;
                 rsp.msg.wxmsg.is_self = wxmsg.is_self;
                 rsp.msg.wxmsg.is_group = wxmsg.is_group;
@@ -485,6 +493,10 @@ static void PushMessage()
                 rsp.msg.wxmsg.thumb = (char*)wxmsg.thumb.c_str();
                 rsp.msg.wxmsg.extra = (char*)wxmsg.extra.c_str();
                 rsp.msg.wxmsg.xml = (char*)wxmsg.xml.c_str();
+                rsp.msg.wxmsg.inviter = (char*)wxmsg.inviter.c_str();
+                rsp.msg.wxmsg.member_id = (char*)wxmsg.member_id.c_str();
+                rsp.msg.wxmsg.member_name = (char*)wxmsg.member_name.c_str();
+
                 gMsgQueue.pop();
                 //LOG_INFO("Push msg: {}", wxmsg.content);
 
@@ -525,6 +537,7 @@ bool func_enable_recv_txt(bool pyq, uint8_t *out, size_t *len)
         if (pyq) {
             ListenPyq();
         }
+        ListenMemberUpdate();
         HANDLE msgThread = CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)PushMessage, NULL, NULL, NULL);
         if (msgThread == NULL) {
             rsp.msg.status = GetLastError();
@@ -1040,6 +1053,29 @@ std::string to_hex_string(const uint8_t* data, size_t length) {
     return oss.str();
 }
 
+void InitializeMemberMgmt() {
+    auto& member_mgmt = MemberAddMgmt::GetInstance();
+
+    member_mgmt.SetNotificationCallback([](const std::string& gid, const MemberEntry& member) {
+        WxMsg_t wxMsg = { 0 };
+        wxMsg.type = 20000;
+        wxMsg.is_self =false;
+        wxMsg.ts = member.timestamp;
+        wxMsg.is_group = true;
+        wxMsg.roomid = gid;
+        wxMsg.inviter = member.inviter;
+        wxMsg.member_id = member.member_id;
+        wxMsg.member_name = member.member_nickname;
+        {
+            lock_guard<mutex> lock(gMutex);
+            gMsgQueue.push(wxMsg);
+        }
+        });
+
+    // 启动定时清理任务，过期时间为 5 秒
+    member_mgmt.StartCleanupTask(5);
+}
+
 static int RunServer()
 {
     int rv                 = 0;
@@ -1124,6 +1160,8 @@ int RpcStartServer(int port)
 #if ENABLE_WX_LOG
     EnableLog();
 #endif
+
+    InitializeMemberMgmt();
     return 0;
 }
 
