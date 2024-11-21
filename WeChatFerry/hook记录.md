@@ -11,7 +11,7 @@ https://www.52pojie.cn/forum.php?mod=viewthread&tid=1970822&highlight=%CE%A2%D0%
 	 
 5. 群成员新增通知，用ghidra、IDA搜索ChatRoomMgr::updateChatRoomMemberDetail，可以搜到sub_182162bc0,这里是群成员信息变动的通知，其中a4+32就是变动的成员数量，在方法中往下找可以找到
 	&micromsg::ChatRoomMemberInfo::`vftable'; 这里就是准备群成员的结构体，sub_1834F5730((__int64)&v167, v60);这个方法就是给数据赋值，通过查看sub_1834F5730，里面有变动成员的wxid，昵称，邀请人
-	那我们就可以hook sub_182162bc0拿到群ID，变动的成员信息。要注意的是这里只要信息变动就会调用，所以还得结合入群的系统消息来判断，确定哪一个是新增的成员
+	那我们就可以hook sub_182162bc0拿到群ID，变动的成员信息。要注意的是这里只要成员信息变动就会调用，所以还得结合入群的系统消息来判断，确定哪一个是新增的成员
 	 
 手动编译proto,在tool目录
 protoc --proto_path=..\proto --nanopb_out=. --experimental_allow_proto3_optional ..\proto\wcf.proto

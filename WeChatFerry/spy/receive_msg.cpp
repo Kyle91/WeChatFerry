@@ -14,11 +14,10 @@
 #include "member_add_mgmt.h"
 
 // Defined in rpc_server.cpp
-extern bool gIsLogging, gIsListening, gIsListeningPyq, gIsLoginUrl, gIsListenMemberUpdate;
-extern mutex gMutex, gQrCodeMutex;
-extern condition_variable gCV, gQrCodeCv;
+extern bool gIsLogging, gIsListening, gIsListeningPyq, gIsListenMemberUpdate;
+extern mutex gMutex;
+extern condition_variable gCV;
 extern queue<WxMsg_t> gMsgQueue;
-extern string gLoginQrCodeUrl;
 
 // Defined in spy.cpp
 extern QWORD g_WeChatWinDllAddr;
@@ -43,13 +42,11 @@ extern QWORD g_WeChatWinDllAddr;
 #define OS_PYQ_MSG_CONTENT  0x48
 #define OS_PYQ_MSG_CALL     0x2E42C90
 #define OS_WXLOG            0x2613D20
-#define OS_LOGIN_URL        0x23b7730
 #define OS_MEMBER_UPDATE    0x2162bc0
 
 typedef QWORD (*RecvMsg_t)(QWORD, QWORD);
 typedef QWORD (*WxLog_t)(QWORD, QWORD, QWORD, QWORD, QWORD, QWORD, QWORD, QWORD, QWORD, QWORD, QWORD, QWORD);
 typedef QWORD (*RecvPyq_t)(QWORD, QWORD, QWORD);
-typedef void(*LoginQr_t)(__int64, __int64*);
 typedef QWORD (*MemberUpdate_t)(__int64 a1, __int64 a2, int a3, __int64 a4, __int64 a5, __int64 a6, QWORD* a7);
 
 static RecvMsg_t funcRecvMsg = nullptr;
@@ -58,8 +55,6 @@ static WxLog_t funcWxLog     = nullptr;
 static WxLog_t realWxLog     = nullptr;
 static RecvPyq_t funcRecvPyq = nullptr;
 static RecvPyq_t realRecvPyq = nullptr;
-static LoginQr_t funcLoginQr = nullptr;
-static LoginQr_t realLoginQr = nullptr;
 static MemberUpdate_t funcMemberUpdate = nullptr;
 static MemberUpdate_t realMemberUpdate = nullptr;
 static bool isMH_Initialized = false;
@@ -395,75 +390,6 @@ void UnListenPyq()
     }
 }
 
-static void LoginQr(__int64 a1, __int64* a2) {
-    if (a2 && a2[0]) {  // 增加空指针检查
-        char* dataPtr = reinterpret_cast<char*>(a2[0]);
-        std::string loginUrl(dataPtr, 22); //读取内容
-        LOG_INFO("Login QR Code URL: {}", loginUrl);
-
-        {
-            std::lock_guard<std::mutex> lock(gQrCodeMutex);
-            gLoginQrCodeUrl = "http://weixin.qq.com/x/" + loginUrl;  // 更新二维码 URL
-        }
-
-        gQrCodeCv.notify_all(); // 通知等待的线程
-    }
-
-    realLoginQr(a1, a2);
-
-    UnListenLoginQrCode();
-}
-
-void ListenLoginQrCode()
-{
-    MH_STATUS status = MH_UNKNOWN;
-    if (gIsLoginUrl) {
-        LOG_WARN("gIsLoginUrl");
-        return;
-    }
-    LoginQr_t funcLoginQr = (LoginQr_t)(g_WeChatWinDllAddr + OS_LOGIN_URL);
-
-    status = InitializeHook();
-    if (status != MH_OK) {
-        LOG_ERROR("MH_Initialize failed: {}", to_string(status));
-        return;
-    }
-
-    status = MH_CreateHook(funcLoginQr, &LoginQr, reinterpret_cast<LPVOID*>(&realLoginQr));
-    if (status != MH_OK) {
-        LOG_ERROR("MH_CreateHook failed: {}", to_string(status));
-        return;
-    }
-
-    status = MH_EnableHook(funcLoginQr);
-    if (status != MH_OK) {
-        LOG_ERROR("MH_EnableHook failed: {}", to_string(status));
-        return;
-    }
-    gIsLoginUrl = true;
-}
-
-void UnListenLoginQrCode()
-{
-    MH_STATUS status = MH_UNKNOWN;
-    if (!gIsLoginUrl) {
-        return;
-    }
-
-    status = MH_DisableHook(funcLoginQr);
-    if (status != MH_OK) {
-        LOG_ERROR("MH_DisableHook failed: {}", to_string(status));
-        return;
-    }
-
-    gIsLoginUrl = false;
-
-    status = UninitializeHook();
-    if (status != MH_OK) {
-        LOG_ERROR("MH_Uninitialize failed: {}", to_string(status));
-        return;
-    }
-}
 
 MemberEntry ParseMemberInfo(__int64 memberAddr) {
     MemberEntry member = {};
@@ -585,7 +511,7 @@ void ListenMemberUpdate()
 void UnListenMemberUpdate()
 {
     MH_STATUS status = MH_UNKNOWN;
-    if (!gIsLoginUrl) {
+    if (!gIsListenMemberUpdate) {
         return;
     }
 

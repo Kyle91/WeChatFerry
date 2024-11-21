@@ -35,6 +35,7 @@ extern QWORD g_WeChatWinDllAddr;
 #define OS_GET_MGR_BY_PREFIX_LOCAL_ID 0x213FB00
 #define OS_GET_PRE_DOWNLOAD_MGR       0x1C0EE70
 #define OS_PUSH_ATTACH_TASK           0x1CDF4E0
+#define OS_LOGIN_QR_CODE              0x59620d8
 
 typedef QWORD (*GetSNSDataMgr_t)();
 typedef QWORD (*GetSnsTimeLineMgr_t)();
@@ -348,11 +349,9 @@ int RevokeMsg(QWORD id)
 
 string GetLoginUrl()
 {
-    LOG_INFO("GetLoginUrl");
-    LPVOID targetAddress = reinterpret_cast<LPBYTE>(g_WeChatWinDllAddr) + 0x23b7730;
+    LPVOID targetAddress = reinterpret_cast<LPBYTE>(g_WeChatWinDllAddr) + OS_LOGIN_QR_CODE;
 
-    // 假设 a2 指向一个字符串，直接读取内容
-    char* dataPtr = *reinterpret_cast<char**>(targetAddress); // 读取 a2 指针内容
+    char* dataPtr = *reinterpret_cast<char**>(targetAddress); // 读取指针内容
     if (!dataPtr) {
         LOG_ERROR("Failed to get login url");
         return "error";

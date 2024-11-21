@@ -37,21 +37,19 @@
 #define URL_SIZE   20
 #define BASE_URL   "tcp://0.0.0.0"
 #define G_BUF_SIZE (16 * 1024 * 1024)
-#define ENABLE_WX_LOG false
+#define ENABLE_WX_LOG true
 
 namespace fs = std::filesystem;
 
 bool gIsLogging      = false;
 bool gIsListening    = false;
 bool gIsListeningPyq = false;
-bool gIsLoginUrl     = false;
 bool gIsListenMemberUpdate = false;
 
-mutex gMutex, gQrCodeMutex;
-condition_variable gCV, gQrCodeCv;
+mutex gMutex;
+condition_variable gCV;
 queue<WxMsg_t> gMsgQueue;
 
-string gLoginQrCodeUrl;
 
 static int lport       = 0;
 static DWORD lThreadId = 0;
@@ -667,21 +665,7 @@ bool func_refresh_qrcode(uint8_t *out, size_t *len)
     rsp.func      = Functions_FUNC_REFRESH_QRCODE;
     rsp.which_msg = Response_str_tag;
 
-
-    if (!gIsLoginUrl) {
-        ListenLoginQrCode();
-    }
-
-    unique_lock<std::mutex> lock(gQrCodeMutex);
-    gQrCodeCv.wait_for(lock, std::chrono::seconds(15), [] { return !gLoginQrCodeUrl.empty(); });
-
-    if (!gLoginQrCodeUrl.empty()) {
-        rsp.msg.str = (char*)gLoginQrCodeUrl.c_str();  // 将 URL 存入响应
-    }
-    else {
-        LOG_ERROR("QR code URL not received in time.");
-        return false;
-    }
+    rsp.msg.str = (char*)GetLoginUrl().c_str();
 
     pb_ostream_t stream = pb_ostream_from_buffer(out, *len);
     if (!pb_encode(&stream, Response_fields, &rsp)) {
