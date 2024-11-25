@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <thread>
 #include <iostream>
+#include "util.h"
 
 // 获取单例实例
 MemberAddMgmt& MemberAddMgmt::GetInstance() {
@@ -13,11 +14,7 @@ MemberAddMgmt& MemberAddMgmt::GetInstance() {
 MemberAddMgmt::MemberAddMgmt() {}
 
 
-uint32_t GetCurrentTimestamp() {
-    return static_cast<uint32_t>(std::chrono::duration_cast<std::chrono::seconds>(
-        std::chrono::system_clock::now().time_since_epoch())
-        .count());
-}
+
 // 设置通知回调
 void MemberAddMgmt::SetNotificationCallback(std::function<void(const std::string& gid, const MemberEntry&)> callback) {
     notification_callback = callback;

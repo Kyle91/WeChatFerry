@@ -122,20 +122,47 @@ void SendFileMessage(string wxid, string path)
     WxString wxWxid(wsWxid);
     WxString wxPath(wsPath);
 
+    New_t funcNew = (New_t)(g_WeChatWinDllAddr + OS_NEW);
+    Free_t funcFree = (Free_t)(g_WeChatWinDllAddr + OS_FREE);
+    SendMsgMgr_t funcSendMsgMgr = (SendMsgMgr_t)(g_WeChatWinDllAddr + OS_SEND_MSG_MGR);
+    SendImageMsg_t funcSendImage = (SendImageMsg_t)(g_WeChatWinDllAddr + OS_SEND_IMAGE);
+
+    char msg[0x460] = { 0 };
+    char msgTmp[0x460] = { 0 };
+    QWORD* flag[10] = { 0 };
+
+    QWORD tmp1 = 0, tmp2 = 0;
+    QWORD pMsgTmp = funcNew((QWORD)(&msgTmp));
+    flag[8] = &tmp1;
+    flag[9] = &tmp2;
+    flag[1] = (QWORD*)(pMsgTmp);
+
+    QWORD pMsg = funcNew((QWORD)(&msg));
+    QWORD sendMgr = funcSendMsgMgr();
+    funcSendImage(sendMgr, pMsg, (QWORD)(&wxWxid), (QWORD)(&wxPath), (QWORD)(&flag));
+    funcFree(pMsg);
+    funcFree(pMsgTmp);
+    //这段代码不管怎么样都会崩，那直接用发图片的call吧
+    /*wstring wsWxid = String2Wstring(wxid);
+    wstring wsPath = String2Wstring(path);
+
+    WxString wxWxid(wsWxid);
+    WxString wxPath(wsPath);
+
     New_t funcNew                   = (New_t)(g_WeChatWinDllAddr + OS_NEW);
     Free_t funcFree                 = (Free_t)(g_WeChatWinDllAddr + OS_FREE);
     GetAppMsgMgr_t funcGetAppMsgMgr = (GetAppMsgMgr_t)(g_WeChatWinDllAddr + OS_GET_APP_MSG_MGR);
     SendFileMsg_t funcSendFile      = (SendFileMsg_t)(g_WeChatWinDllAddr + OS_SEND_FILE);
 
-    char msg[0x460] = { 0 };
+    char msg[0x490] = { 0 };
     QWORD tmp1[4]   = { 0 };
     QWORD tmp2[4]   = { 0 };
     QWORD tmp3[4]   = { 0 };
 
     QWORD pMsg   = funcNew((QWORD)(&msg));
     QWORD appMgr = funcGetAppMsgMgr();
-    funcSendFile(appMgr, pMsg, (QWORD)(&wxWxid), (QWORD)(&wxPath), 1, tmp1, 0, tmp2, 0, tmp3, 0, 0);
-    funcFree(pMsg);
+    funcSendFile(appMgr, pMsg, (QWORD)(&wxWxid), (QWORD)(&wxPath), 1, tmp1, 0, tmp2, 0, tmp3, 0, 0xC);
+    funcFree(pMsg);*/
 }
 
 int SendRichTextMessage(RichText_t &rt)

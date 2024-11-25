@@ -14,7 +14,7 @@
 #include "member_add_mgmt.h"
 
 // Defined in rpc_server.cpp
-extern bool gIsLogging, gIsListening, gIsListeningPyq, gIsListenMemberUpdate;
+extern bool gIsLogging, gIsListening, gIsListeningPyq, gIsListenMemberUpdate, gIsListenQrPayment;
 extern mutex gMutex;
 extern condition_variable gCV;
 extern queue<WxMsg_t> gMsgQueue;
@@ -43,11 +43,13 @@ extern QWORD g_WeChatWinDllAddr;
 #define OS_PYQ_MSG_CALL     0x2E42C90
 #define OS_WXLOG            0x2613D20
 #define OS_MEMBER_UPDATE    0x2162bc0
+#define OS_QR_PAYMENT       0x1e957d0
 
 typedef QWORD (*RecvMsg_t)(QWORD, QWORD);
 typedef QWORD (*WxLog_t)(QWORD, QWORD, QWORD, QWORD, QWORD, QWORD, QWORD, QWORD, QWORD, QWORD, QWORD, QWORD);
 typedef QWORD (*RecvPyq_t)(QWORD, QWORD, QWORD);
 typedef QWORD (*MemberUpdate_t)(__int64 a1, __int64 a2, int a3, __int64 a4, __int64 a5, __int64 a6, QWORD* a7);
+typedef QWORD(*QrPayment_t)(__int64 a1, __int64 a2, __int64 a3);
 
 static RecvMsg_t funcRecvMsg = nullptr;
 static RecvMsg_t realRecvMsg = nullptr;
@@ -57,6 +59,8 @@ static RecvPyq_t funcRecvPyq = nullptr;
 static RecvPyq_t realRecvPyq = nullptr;
 static MemberUpdate_t funcMemberUpdate = nullptr;
 static MemberUpdate_t realMemberUpdate = nullptr;
+static QrPayment_t funcQrPayment = nullptr;
+static QrPayment_t realQrPayment = nullptr;
 static bool isMH_Initialized = false;
 
 MsgTypes_t GetMsgTypes()
@@ -522,6 +526,76 @@ void UnListenMemberUpdate()
     }
 
     gIsListenMemberUpdate = false;
+
+    status = UninitializeHook();
+    if (status != MH_OK) {
+        LOG_ERROR("MH_Uninitialize failed: {}", to_string(status));
+        return;
+    }
+}
+
+static QWORD ProcessQrPayment(__int64 a1, __int64 a2, __int64 a3) {
+    __int64 stringAddress = *reinterpret_cast<__int64*>(a2);
+    std::string payStr = ReadUtf16String(stringAddress);
+    WxMsg_t wxMsg = { 0 };
+    wxMsg.type = 20002;
+    wxMsg.is_self = false;
+    wxMsg.ts = GetCurrentTimestamp();
+    wxMsg.is_group = false;
+    wxMsg.xml = payStr;
+    {
+        lock_guard<mutex> lock(gMutex);
+        gMsgQueue.push(wxMsg);
+    }
+    return realQrPayment(a1, a2, a3);
+}
+
+//二维码收款信息
+void ListenQrPayment()
+{
+    MH_STATUS status = MH_UNKNOWN;
+    if (gIsListenQrPayment) {
+        LOG_WARN("gIsListenQrPayment");
+        return;
+    }
+    QrPayment_t funcQrPayment = (QrPayment_t)(g_WeChatWinDllAddr + OS_QR_PAYMENT);
+
+    status = InitializeHook();
+    if (status != MH_OK) {
+        LOG_ERROR("MH_Initialize failed: {}", to_string(status));
+        return;
+    }
+
+    LOG_INFO("create payment update hook");
+
+    status = MH_CreateHook(funcQrPayment, &ProcessQrPayment, reinterpret_cast<LPVOID*>(&realQrPayment));
+    if (status != MH_OK) {
+        LOG_ERROR("MH_CreateHook failed: {}", to_string(status));
+        return;
+    }
+
+    status = MH_EnableHook(funcQrPayment);
+    if (status != MH_OK) {
+        LOG_ERROR("MH_EnableHook failed: {}", to_string(status));
+        return;
+    }
+    gIsListenQrPayment = true;
+}
+
+void UnListenQrPayment()
+{
+    MH_STATUS status = MH_UNKNOWN;
+    if (!gIsListenQrPayment) {
+        return;
+    }
+
+    status = MH_DisableHook(funcQrPayment);
+    if (status != MH_OK) {
+        LOG_ERROR("MH_DisableHook failed: {}", to_string(status));
+        return;
+    }
+
+    gIsListenQrPayment = false;
 
     status = UninitializeHook();
     if (status != MH_OK) {

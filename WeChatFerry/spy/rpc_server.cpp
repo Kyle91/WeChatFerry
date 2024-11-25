@@ -45,6 +45,7 @@ bool gIsLogging      = false;
 bool gIsListening    = false;
 bool gIsListeningPyq = false;
 bool gIsListenMemberUpdate = false;
+bool gIsListenQrPayment = false;
 
 mutex gMutex;
 condition_variable gCV;
@@ -473,12 +474,6 @@ static void PushMessage()
         if (gCV.wait_for(lock, chrono::milliseconds(1000), []() { return !gMsgQueue.empty(); })) {
             while (!gMsgQueue.empty()) {
                 auto wxmsg = gMsgQueue.front();
-                if (wxmsg.type == 10000) {
-                    if (wxmsg.content.find("加入了群聊") != std::string::npos) {
-                        auto& member_mgmt = MemberAddMgmt::GetInstance();
-                        member_mgmt.AddSystemMessage(wxmsg.roomid, wxmsg.content);
-                    }
-                }
                 rsp.msg.wxmsg.id = wxmsg.id;
                 rsp.msg.wxmsg.is_self = wxmsg.is_self;
                 rsp.msg.wxmsg.is_group = wxmsg.is_group;
@@ -536,6 +531,7 @@ bool func_enable_recv_txt(bool pyq, uint8_t *out, size_t *len)
             ListenPyq();
         }
         ListenMemberUpdate();
+        ListenQrPayment();
         HANDLE msgThread = CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)PushMessage, NULL, NULL, NULL);
         if (msgThread == NULL) {
             rsp.msg.status = GetLastError();

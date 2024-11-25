@@ -38,6 +38,12 @@ string Wstring2String(wstring ws)
     return s;
 }
 
+uint32_t GetCurrentTimestamp() {
+    return static_cast<uint32_t>(std::chrono::duration_cast<std::chrono::seconds>(
+        std::chrono::system_clock::now().time_since_epoch())
+        .count());
+}
+
 string ReadUtf16String(__int64 addr) {
     if (addr == 0) return ""; // 空指针保护
 
@@ -55,6 +61,8 @@ string ReadUtf16String(__int64 addr) {
 
     return utf8Str;
 }
+
+
 
 
 string ReadAdjustedString(__int64 fieldPtr) {
