@@ -13,9 +13,11 @@ https://www.52pojie.cn/forum.php?mod=viewthread&tid=1970822&highlight=%CE%A2%D0%
 	&micromsg::ChatRoomMemberInfo::`vftable'; 这里就是准备群成员的结构体，sub_1834F5730((__int64)&v167, v60);这个方法就是给数据赋值，通过查看sub_1834F5730，里面有变动成员的wxid，昵称，邀请人
 	那我们就可以hook sub_182162bc0拿到群ID，变动的成员信息。要注意的是这里只要成员信息变动就会调用，所以还得结合入群的系统消息来判断，确定哪一个是新增的成员
 	 
-6. 获取二维码收款数据，IDA搜索 paymsg，方法里面的a2参数既可拿到付款人，付款金额，订单号，付款人昵称	 
+6. 获取二维码收款数据，IDA搜索 paymsg，方法里面的a2参数既可拿到付款人，付款金额，订单号，付款人昵称
 
-NetSceneGetA8Key::NetSceneGetA8Key
+7. 修改好友备注，这个没有找到关键词，我是根据WeChatHelper的call来找的。WeChatHelper是3.9.10.27，那么根据它的call在IDA中找到对应的方法，看了一遍，方法里面没有明显的定位字符串，那看一下IDA的function列表，在call的    前后找方法，看看有没有定位字符串，找到定位字符串，再去3.9.11.25里面找到对应的call，然后根据顺序找到具体的call就行了
+
+
 手动编译proto,在tool目录
 protoc --proto_path=..\proto --nanopb_out=. --experimental_allow_proto3_optional ..\proto\wcf.proto
 

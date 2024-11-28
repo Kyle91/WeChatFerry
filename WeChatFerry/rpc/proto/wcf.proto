@@ -36,6 +36,7 @@ enum Functions {
     FUNC_ADD_ROOM_MEMBERS = 0x70;
     FUNC_DEL_ROOM_MEMBERS = 0x71;
     FUNC_INV_ROOM_MEMBERS = 0x72;
+    FUNC_MODIFY_CONTACT_REMARK   = 0x73;
 }
 
 message Request

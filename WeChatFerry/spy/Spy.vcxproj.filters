@@ -90,6 +90,9 @@
     <ClInclude Include="member_add_mgmt.h">
       <Filter>头文件</Filter>
     </ClInclude>
+    <ClInclude Include="member_quit_mgmt.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="dllmain.cpp">
@@ -144,6 +147,9 @@
       <Filter>源文件</Filter>
     </ClCompile>
     <ClCompile Include="member_add_mgmt.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="member_quit_mgmt.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
   </ItemGroup>

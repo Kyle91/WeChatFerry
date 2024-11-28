@@ -17,20 +17,22 @@ extern QWORD g_WeChatWinDllAddr;
 #define OS_CONTACT_NAME     0xA0
 #define OS_CONTACT_GENDER   0x0E
 #define OS_CONTACT_STEP     0x6A8
+#define OS_MODIFY_CONTACT_REMARK   0x218E8A0
 
-typedef QWORD (*GetContactMgr_t)();
-typedef QWORD (*GetContactList_t)(QWORD, QWORD);
+typedef QWORD(*GetContactMgr_t)();
+typedef QWORD(*GetContactList_t)(QWORD, QWORD);
+typedef QWORD(*ModifyContactRemark_t)(QWORD, QWORD, QWORD);
 
 #define FEAT_LEN 5
-static const uint8_t FEAT_COUNTRY[FEAT_LEN]  = { 0xA4, 0xD9, 0x02, 0x4A, 0x18 };
+static const uint8_t FEAT_COUNTRY[FEAT_LEN] = { 0xA4, 0xD9, 0x02, 0x4A, 0x18 };
 static const uint8_t FEAT_PROVINCE[FEAT_LEN] = { 0xE2, 0xEA, 0xA8, 0xD1, 0x18 };
-static const uint8_t FEAT_CITY[FEAT_LEN]     = { 0x1D, 0x02, 0x5B, 0xBF, 0x18 };
+static const uint8_t FEAT_CITY[FEAT_LEN] = { 0x1D, 0x02, 0x5B, 0xBF, 0x18 };
 
-static QWORD FindMem(QWORD start, QWORD end, const void *target, size_t len)
+static QWORD FindMem(QWORD start, QWORD end, const void* target, size_t len)
 {
-    uint8_t *p = (uint8_t *)start;
+    uint8_t* p = (uint8_t*)start;
     while ((QWORD)p < end) {
-        if (memcmp((void *)p, target, len) == 0) {
+        if (memcmp((void*)p, target, len) == 0) {
             return (QWORD)p;
         }
         p++;
@@ -39,7 +41,7 @@ static QWORD FindMem(QWORD start, QWORD end, const void *target, size_t len)
     return 0;
 }
 
-static string GetCntString(QWORD start, QWORD end, const uint8_t *feat, size_t len)
+static string GetCntString(QWORD start, QWORD end, const uint8_t* feat, size_t len)
 {
     QWORD pfeat = FindMem(start, end, feat, len);
     if (pfeat == 0) {
@@ -54,13 +56,25 @@ static string GetCntString(QWORD start, QWORD end, const uint8_t *feat, size_t l
     return Wstring2String(wstring(GET_WSTRING_FROM_P(pfeat + FEAT_LEN + 4), lfeat));
 }
 
+int ModifyContactRemark(string wxid, string remark) {
+    wstring wsWxid = String2Wstring(wxid);
+    wstring wsRemark = String2Wstring(remark);
+    WxString wxWxid(wsWxid);
+    WxString wxRemark(wsRemark);
+
+    ModifyContactRemark_t funcModifyContactRemark = (ModifyContactRemark_t)(g_WeChatWinDllAddr + OS_MODIFY_CONTACT_REMARK);
+    funcModifyContactRemark((QWORD)(wxRemark.wptr), (QWORD)(&wxWxid), (QWORD)(&wxRemark));
+
+    return 0;
+}
+
 vector<RpcContact_t> GetContacts()
 {
     vector<RpcContact_t> contacts;
-    GetContactMgr_t funcGetContactMgr   = (GetContactMgr_t)(g_WeChatWinDllAddr + OS_GET_CONTACT_MGR);
+    GetContactMgr_t funcGetContactMgr = (GetContactMgr_t)(g_WeChatWinDllAddr + OS_GET_CONTACT_MGR);
     GetContactList_t funcGetContactList = (GetContactList_t)(g_WeChatWinDllAddr + OS_GET_CONTACT_LIST);
 
-    QWORD mgr     = funcGetContactMgr();
+    QWORD mgr = funcGetContactMgr();
     QWORD addr[3] = { 0 };
     if (funcGetContactList(mgr, (QWORD)addr) != 1) {
         LOG_ERROR("GetContacts failed");
@@ -68,25 +82,26 @@ vector<RpcContact_t> GetContacts()
     }
 
     QWORD pstart = (QWORD)addr[0];
-    QWORD pend   = (QWORD)addr[2];
+    QWORD pend = (QWORD)addr[2];
     while (pstart < pend) {
         RpcContact_t cnt;
-        QWORD pbin   = GET_QWORD(pstart + OS_CONTACT_BIN);
+        QWORD pbin = GET_QWORD(pstart + OS_CONTACT_BIN);
         QWORD lenbin = GET_DWORD(pstart + OS_CONTACT_BIN_LEN);
 
-        cnt.wxid   = GetStringByWstrAddr(pstart + OS_CONTACT_WXID);
-        cnt.code   = GetStringByWstrAddr(pstart + OS_CONTACT_CODE);
+        cnt.wxid = GetStringByWstrAddr(pstart + OS_CONTACT_WXID);
+        cnt.code = GetStringByWstrAddr(pstart + OS_CONTACT_CODE);
         cnt.remark = GetStringByWstrAddr(pstart + OS_CONTACT_REMARK);
-        cnt.name   = GetStringByWstrAddr(pstart + OS_CONTACT_NAME);
+        cnt.name = GetStringByWstrAddr(pstart + OS_CONTACT_NAME);
 
-        cnt.country  = GetCntString(pbin, pbin + lenbin, FEAT_COUNTRY, FEAT_LEN);
+        cnt.country = GetCntString(pbin, pbin + lenbin, FEAT_COUNTRY, FEAT_LEN);
         cnt.province = GetCntString(pbin, pbin + lenbin, FEAT_PROVINCE, FEAT_LEN);
-        cnt.city     = GetCntString(pbin, pbin + lenbin, FEAT_CITY, FEAT_LEN);
+        cnt.city = GetCntString(pbin, pbin + lenbin, FEAT_CITY, FEAT_LEN);
 
         if (pbin == 0) {
             cnt.gender = 0;
-        } else {
-            cnt.gender = (DWORD) * (uint8_t *)(pbin + OS_CONTACT_GENDER);
+        }
+        else {
+            cnt.gender = (DWORD) * (uint8_t*)(pbin + OS_CONTACT_GENDER);
         }
 
         contacts.push_back(cnt);
@@ -106,7 +121,7 @@ int AcceptNewFriend(string v3, string v4, int scene)
     DWORD acceptNewFriendCall3 = g_WeChatWinDllAddr + g_WxCalls.anf.call3;
     DWORD acceptNewFriendCall4 = g_WeChatWinDllAddr + g_WxCalls.anf.call4;
 
-    char buffer[0x40]      = { 0 };
+    char buffer[0x40] = { 0 };
     char nullbuffer[0x3CC] = { 0 };
 
     LOG_DEBUG("\nv3: {}\nv4: {}\nscene: {}", v3, v4, scene);
@@ -153,35 +168,35 @@ RpcContact_t GetContactByWxid(string wxid)
 {
     RpcContact_t contact;
     char buff[0x440] = { 0 };
-    wstring wsWxid   = String2Wstring(wxid);
+    wstring wsWxid = String2Wstring(wxid);
     WxString pri(wsWxid);
-    DWORD contact_mgr_addr  = g_WeChatWinDllAddr + 0x75A4A0;
-    DWORD get_contact_addr  = g_WeChatWinDllAddr + 0xC04E00;
+    DWORD contact_mgr_addr = g_WeChatWinDllAddr + 0x75A4A0;
+    DWORD get_contact_addr = g_WeChatWinDllAddr + 0xC04E00;
     DWORD free_contact_addr = g_WeChatWinDllAddr + 0xEA7880;
     __asm {
         PUSHAD
         PUSHFD
         CALL       contact_mgr_addr
-        LEA        ECX,buff
+        LEA        ECX, buff
         PUSH       ECX
-        LEA        ECX,pri
+        LEA        ECX, pri
         PUSH       ECX
-        MOV        ECX,EAX
+        MOV        ECX, EAX
         CALL       get_contact_addr
         POPFD
         POPAD
     }
 
-    contact.wxid   = wxid;
-    contact.code   = GetStringByWstrAddr((DWORD)buff + g_WxCalls.contact.wxCode);
+    contact.wxid = wxid;
+    contact.code = GetStringByWstrAddr((DWORD)buff + g_WxCalls.contact.wxCode);
     contact.remark = GetStringByWstrAddr((DWORD)buff + g_WxCalls.contact.wxRemark);
-    contact.name   = GetStringByWstrAddr((DWORD)buff + g_WxCalls.contact.wxName);
+    contact.name = GetStringByWstrAddr((DWORD)buff + g_WxCalls.contact.wxName);
     contact.gender = GET_DWORD((DWORD)buff + 0x148);
 
     __asm {
         PUSHAD
         PUSHFD
-        LEA        ECX,buff
+        LEA        ECX, buff
         CALL       free_contact_addr
         POPFD
         POPAD

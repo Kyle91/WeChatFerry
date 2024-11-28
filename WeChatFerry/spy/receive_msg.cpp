@@ -12,9 +12,14 @@
 #include "util.h"
 #include "rpc_server.h"
 #include "member_add_mgmt.h"
+#include "member_quit_mgmt.h"
+#include "exec_sql.h"
+#include "wcf.pb.h"
+#include "pb_util.h"
+#include <unordered_set>
 
 // Defined in rpc_server.cpp
-extern bool gIsLogging, gIsListening, gIsListeningPyq, gIsListenMemberUpdate, gIsListenQrPayment;
+extern bool gIsLogging, gIsListening, gIsListeningPyq, gIsListenMemberUpdate, gIsListenQrPayment, gIsListenMemberQuit;
 extern mutex gMutex;
 extern condition_variable gCV;
 extern queue<WxMsg_t> gMsgQueue;
@@ -103,6 +108,7 @@ MsgTypes_t GetMsgTypes()
 
     return m;
 }
+
 
 static QWORD DispatchMsg(QWORD arg1, QWORD arg2)
 {
@@ -394,6 +400,77 @@ void UnListenPyq()
     }
 }
 
+std::string GetColumnContent(const DbRow_t& row, const std::string& columnName) {
+    for (const auto& field : row) {
+        if (field.column == columnName) {
+            return std::string(field.content.begin(), field.content.end());
+        }
+    }
+    return ""; // 没有找到返回空字符串
+}
+
+// 获取群成员信息
+std::vector<ModelGroupMember> GetRoomMembers(const std::string& gid) {
+    std::vector<ModelGroupMember> result;
+
+    // 查询群信息
+    std::string query = "SELECT RoomData FROM ChatRoom WHERE ChatRoomName = '" + gid + "';";
+    auto roomList = ExecDbQuery("MicroMsg.db", query);
+
+    if (roomList.empty()) {
+        return result;
+    }
+
+    std::string roomDataStr = GetColumnContent(roomList[0], "RoomData");
+    if (roomDataStr.empty()) {
+        return result;
+    }
+
+    // Protobuf解析
+    pb_istream_t stream = pb_istream_from_buffer(reinterpret_cast<const uint8_t*>(roomDataStr.data()), roomDataStr.size());
+
+    // 创建 RoomData 结构实例
+    RoomData roomData = RoomData_init_zero; // 初始化为零值
+
+    // 解码数据到 RoomData
+    if (!pb_decode(&stream, RoomData_fields, &roomData)) {
+        LOG_ERROR("Failed to decode RoomData protobuf.");
+        return result;
+    }
+    // 遍历成员
+    for (int i = 0; i < roomData.members_count; ++i) {
+        const auto& member = roomData.members[i];
+        ModelGroupMember groupMember;
+        groupMember.GroupAlias = member.name;
+        groupMember.Wxid = member.wxid;
+        groupMember.Gid = gid;
+        result.push_back(groupMember);
+    }
+
+    // 批量获取成员昵称
+    std::vector<std::string> wxids;
+    for (const auto& member : result) {
+        wxids.push_back("'" + member.Wxid + "'");
+    }
+    std::string wxidList = Join(wxids, ",");
+    query = "SELECT UserName, NickName FROM Contact WHERE UserName IN (" + wxidList + ");";
+    auto userNicknames = ExecDbQuery("MicroMsg.db", query);
+
+    // 映射昵称
+    std::map<std::string, std::string> nicknameDict;
+    for (const auto& row : userNicknames) {
+        std::string userName = GetColumnContent(row, "UserName");
+        std::string nickName = GetColumnContent(row, "NickName");
+        nicknameDict[userName] = nickName;
+    }
+
+    // 设置昵称
+    for (auto& member : result) {
+        member.Name = nicknameDict[member.Wxid];
+    }
+
+    return result;
+}
 
 MemberEntry ParseMemberInfo(__int64 memberAddr) {
     MemberEntry member = {};
@@ -450,9 +527,11 @@ MemberEntry ParseMemberInfo(__int64 memberAddr) {
     return member;
 }
 
+
+
 static QWORD ProcessMemberUpdate(__int64 a1, __int64 a2, int a3, __int64 a4, __int64 a5, __int64 a6, QWORD* a7) {
-    auto& member_mgmt = MemberAddMgmt::GetInstance();
     try {
+        auto& member_mgmt = MemberAddMgmt::GetInstance();
         std::string groupID = ReadUtf16String(*reinterpret_cast<__int64*>(a2));
 
         int memberUpdateFlag = *reinterpret_cast<int*>(a4 + 32);
@@ -465,6 +544,51 @@ static QWORD ProcessMemberUpdate(__int64 a1, __int64 a2, int a3, __int64 a4, __i
                     MemberEntry member = ParseMemberInfo(memberAddr);
                     member_mgmt.AddMemberEntry(groupID,member);
                 }
+            }
+        }
+        else {
+            auto& member_quit = MemberQuitMgmt::GetInstance();
+            std::unordered_set<std::string> newMemberList;
+
+            // 读取 startPtr 和 endPtr
+            void* startPtr = *reinterpret_cast<void**>(a7);                        // 相当于 *(void**)a7
+            void* endPtr = *reinterpret_cast<void**>(reinterpret_cast<char*>(a7) + sizeof(void*)); // *(a7 + 1)
+
+            // 定义每个元素的大小（32字节）
+            const size_t elementSize = 32;
+
+            // 初始化当前指针为起始指针
+            char* currentPtr = static_cast<char*>(startPtr);
+
+            // 遍历数组
+            while (currentPtr < static_cast<char*>(endPtr)) {
+                // 读取当前元素的第一个字段作为成员ID指针
+                void* memberIdPtr = *reinterpret_cast<void**>(currentPtr); // 读取第一个字段
+                const char* memberId = static_cast<const char*>(memberIdPtr);
+
+                // 检查 memberId 是否为有效指针，避免非法访问
+                if (memberId != nullptr) {
+                    // 保存到结果数组中
+                    newMemberList.insert(std::string(memberId));
+                }
+                // 移动到下一个元素
+                currentPtr += elementSize;
+            }
+            std::vector<ModelGroupMember> oldMemberList = GetRoomMembers(groupID);
+
+            LOG_INFO("成员退群，gid:{},新成员数：{}，旧成员数：{}",groupID, newMemberList.size(), oldMemberList.size());
+
+            std::vector<ModelGroupMember> removedMembers;
+
+            // 遍历旧成员列表，检查是否存在于新成员集合中
+            for (const auto& oldMember : oldMemberList) {
+                if (newMemberList.find(oldMember.Wxid) == newMemberList.end()) {
+                    // 如果不在新成员集合中，将其添加到结果列表
+                    removedMembers.push_back(oldMember);
+                }
+            }
+            if (removedMembers.size() > 0) {
+                member_quit.AddMemberQuit(groupID, removedMembers);
             }
         }
     }
@@ -603,4 +727,3 @@ void UnListenQrPayment()
         return;
     }
 }
-

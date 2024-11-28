@@ -13,3 +13,12 @@ void UnListenMemberUpdate();
 void ListenQrPayment();
 void UnListenQrPayment();
 MsgTypes_t GetMsgTypes();
+
+// 定义群成员模型
+struct ModelGroupMember {
+    std::string GroupAlias;
+    std::string Wxid;
+    std::string Gid;
+    std::string Name;
+};
+

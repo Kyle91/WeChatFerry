@@ -33,11 +33,12 @@
 #include "user_info.h"
 #include "util.h"
 #include "member_add_mgmt.h"
+#include "member_quit_mgmt.h"
 
 #define URL_SIZE   20
 #define BASE_URL   "tcp://0.0.0.0"
 #define G_BUF_SIZE (16 * 1024 * 1024)
-#define ENABLE_WX_LOG true
+#define ENABLE_WX_LOG false
 
 namespace fs = std::filesystem;
 
@@ -866,6 +867,31 @@ bool func_invite_room_members(char *roomid, char *wxids, uint8_t *out, size_t *l
     return true;
 }
 
+bool func_modify_contact_remark(char* wxid, char* remark, uint8_t* out, size_t* len)
+{
+    Response rsp = Response_init_default;
+    rsp.func = Functions_FUNC_MODIFY_CONTACT_REMARK;
+    rsp.which_msg = Response_status_tag;
+    rsp.msg.status = 0;
+
+    if ((wxid == NULL)) {
+        LOG_ERROR("Empty wxid.");
+        rsp.msg.status = -1;
+    }
+    else {
+        rsp.msg.status = ModifyContactRemark(wxid, remark);
+    }
+
+    pb_ostream_t stream = pb_ostream_from_buffer(out, *len);
+    if (!pb_encode(&stream, Response_fields, &rsp)) {
+        LOG_ERROR("Encoding failed: {}", PB_GET_ERROR(&stream));
+        return false;
+    }
+    *len = stream.bytes_written;
+
+    return true;
+}
+
 static bool dispatcher(uint8_t *in, size_t in_len, uint8_t *out, size_t *out_len)
 {
     bool ret            = false;
@@ -880,8 +906,8 @@ static bool dispatcher(uint8_t *in, size_t in_len, uint8_t *out, size_t *out_len
         return false;
     }
 
-   LOG_INFO("Successfully decoded message. Function ID: {:#04x}, Enum Name: [{}], Length: {}",
-        (uint8_t)req.func, magic_enum::enum_name(req.func), in_len);
+ /*  LOG_INFO("Successfully decoded message. Function ID: {:#04x}, Enum Name: [{}], Length: {}",
+        (uint8_t)req.func, magic_enum::enum_name(req.func), in_len);*/
 
     // Verify and log specific fields (e.g., req.msg.xml.type)
     
@@ -1013,6 +1039,10 @@ static bool dispatcher(uint8_t *in, size_t in_len, uint8_t *out, size_t *out_len
             ret = func_invite_room_members(req.msg.m.roomid, req.msg.m.wxids, out, out_len);
             break;
         }
+        case Functions_FUNC_MODIFY_CONTACT_REMARK: {
+            ret = func_modify_contact_remark(req.msg.txt.receiver, req.msg.txt.msg, out, out_len);
+            break;
+        }
         default: {
             LOG_ERROR("[UNKNOW FUNCTION]");
             break;
@@ -1054,6 +1084,22 @@ void InitializeMemberMgmt() {
 
     // 启动定时清理任务，过期时间为 5 秒
     member_mgmt.StartCleanupTask(5);
+
+    auto& member_quit = MemberQuitMgmt::GetInstance();
+    member_quit.SetNotificationCallback([](const std::string& gid, uint32_t time, const ModelGroupMember& member) {
+        WxMsg_t wxMsg = { 0 };
+        wxMsg.type = 20001;
+        wxMsg.is_self = false;
+        wxMsg.ts = time;
+        wxMsg.is_group = true;
+        wxMsg.roomid = gid;
+        wxMsg.member_id = member.Wxid;
+        wxMsg.member_name = member.Name;
+        {
+            lock_guard<mutex> lock(gMutex);
+            gMsgQueue.push(wxMsg);
+        }
+        });
 }
 
 static int RunServer()

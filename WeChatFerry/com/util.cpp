@@ -12,6 +12,7 @@
 #include "log.h"
 #include "util.h"
 #include <AclAPI.h>
+#include <sstream>
 
 #pragma comment(lib, "shlwapi")
 #pragma comment(lib, "Version.lib")
@@ -62,7 +63,24 @@ string ReadUtf16String(__int64 addr) {
     return utf8Str;
 }
 
+std::string Base64Decode(const std::string& encoded) {
+    static const std::string base64_chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    std::string decoded;
+    std::vector<int> decoding_table(256, -1);
+    for (int i = 0; i < 64; i++) decoding_table[base64_chars[i]] = i;
 
+    int val = 0, bits = -8;
+    for (const unsigned char c : encoded) {
+        if (decoding_table[c] == -1) break;
+        val = (val << 6) + decoding_table[c];
+        bits += 6;
+        if (bits >= 0) {
+            decoded.push_back(char((val >> bits) & 0xFF));
+            bits -= 8;
+        }
+    }
+    return decoded;
+}
 
 
 string ReadAdjustedString(__int64 fieldPtr) {
@@ -437,4 +455,15 @@ std::wstring convertToWString(const std::string& input) {
     else {
         return String2Wstring(input);
     }
+}
+
+std::string Join(const std::vector<std::string>& elements, const std::string& delimiter) {
+    std::ostringstream os;
+    for (size_t i = 0; i < elements.size(); ++i) {
+        os << elements[i];
+        if (i != elements.size() - 1) {
+            os << delimiter;
+        }
+    }
+    return os.str();
 }
