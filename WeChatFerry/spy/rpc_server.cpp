@@ -47,6 +47,7 @@ bool gIsListening    = false;
 bool gIsListeningPyq = false;
 bool gIsListenMemberUpdate = false;
 bool gIsListenQrPayment = false;
+bool gIsListenKickMember = false;
 
 mutex gMutex;
 condition_variable gCV;
@@ -533,6 +534,7 @@ bool func_enable_recv_txt(bool pyq, uint8_t *out, size_t *len)
         }
         ListenMemberUpdate();
         ListenQrPayment();
+        ListenMemberBeKick();
         HANDLE msgThread = CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)PushMessage, NULL, NULL, NULL);
         if (msgThread == NULL) {
             rsp.msg.status = GetLastError();

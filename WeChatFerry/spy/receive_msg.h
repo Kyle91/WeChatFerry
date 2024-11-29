@@ -12,6 +12,8 @@ void ListenMemberUpdate();
 void UnListenMemberUpdate();
 void ListenQrPayment();
 void UnListenQrPayment();
+void ListenMemberBeKick();
+void UnListenMemberBeKick();
 MsgTypes_t GetMsgTypes();
 
 // 定义群成员模型

@@ -45,3 +45,4 @@ std::string ReadUtf16String(__int64 addr);
 uint32_t GetCurrentTimestamp();
 std::string Base64Decode(const std::string& encoded);
 std::string Join(const std::vector<std::string>& elements, const std::string& delimiter);
+std::string ReadUtf8String(void* address);

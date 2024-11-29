@@ -19,7 +19,7 @@
 #include <unordered_set>
 
 // Defined in rpc_server.cpp
-extern bool gIsLogging, gIsListening, gIsListeningPyq, gIsListenMemberUpdate, gIsListenQrPayment, gIsListenMemberQuit;
+extern bool gIsLogging, gIsListening, gIsListeningPyq, gIsListenMemberUpdate, gIsListenQrPayment, gIsListenKickMember;
 extern mutex gMutex;
 extern condition_variable gCV;
 extern queue<WxMsg_t> gMsgQueue;
@@ -49,12 +49,14 @@ extern QWORD g_WeChatWinDllAddr;
 #define OS_WXLOG            0x2613D20
 #define OS_MEMBER_UPDATE    0x2162bc0
 #define OS_QR_PAYMENT       0x1e957d0
+#define OS_MEMBER_BE_KICK   0x215a710
 
 typedef QWORD (*RecvMsg_t)(QWORD, QWORD);
 typedef QWORD (*WxLog_t)(QWORD, QWORD, QWORD, QWORD, QWORD, QWORD, QWORD, QWORD, QWORD, QWORD, QWORD, QWORD);
 typedef QWORD (*RecvPyq_t)(QWORD, QWORD, QWORD);
 typedef QWORD (*MemberUpdate_t)(__int64 a1, __int64 a2, int a3, __int64 a4, __int64 a5, __int64 a6, QWORD* a7);
-typedef QWORD(*QrPayment_t)(__int64 a1, __int64 a2, __int64 a3);
+typedef QWORD (*QrPayment_t)(__int64 a1, __int64 a2, __int64 a3);
+typedef QWORD (*MemberBeKick_t)(__int64 a1, __int64 a2, char** a3, char a4);
 
 static RecvMsg_t funcRecvMsg = nullptr;
 static RecvMsg_t realRecvMsg = nullptr;
@@ -66,6 +68,8 @@ static MemberUpdate_t funcMemberUpdate = nullptr;
 static MemberUpdate_t realMemberUpdate = nullptr;
 static QrPayment_t funcQrPayment = nullptr;
 static QrPayment_t realQrPayment = nullptr;
+static MemberBeKick_t funcMemberBeKick = nullptr;
+static MemberBeKick_t realMemberBeKick = nullptr;
 static bool isMH_Initialized = false;
 
 MsgTypes_t GetMsgTypes()
@@ -576,8 +580,6 @@ static QWORD ProcessMemberUpdate(__int64 a1, __int64 a2, int a3, __int64 a4, __i
             }
             std::vector<ModelGroupMember> oldMemberList = GetRoomMembers(groupID);
 
-            LOG_INFO("成员退群，gid:{},新成员数：{}，旧成员数：{}",groupID, newMemberList.size(), oldMemberList.size());
-
             std::vector<ModelGroupMember> removedMembers;
 
             // 遍历旧成员列表，检查是否存在于新成员集合中
@@ -720,6 +722,104 @@ void UnListenQrPayment()
     }
 
     gIsListenQrPayment = false;
+
+    status = UninitializeHook();
+    if (status != MH_OK) {
+        LOG_ERROR("MH_Uninitialize failed: {}", to_string(status));
+        return;
+    }
+}
+
+static QWORD ProcessMemberBeKick(__int64 a1, __int64 a2, char** a3, char a4) {
+    std::string groupID = ReadUtf16String(a1);
+    try {
+        // 读取 a2 + 8 位置的结束指针
+        void* endPtr = *reinterpret_cast<void**>(reinterpret_cast<char*>(a2) + 0x8);
+        // 读取 a2 位置的起始指针
+        void* currentPtr = *reinterpret_cast<void**>(a2);
+
+        std::unordered_set<std::string> wxidSet;
+
+        int count = 0;
+        // 遍历列表，直到 currentPtr == endPtr
+        while (currentPtr != endPtr) {
+            count++;
+            if (count % 8 == 1) {
+                // 读取当前 wxid 的指针
+                void* wxidPtr = *reinterpret_cast<void**>(currentPtr);
+                std::string wxid = ReadUtf8String(wxidPtr);
+                wxidSet.insert(wxid);
+            }
+            // 偏移到下一个条目，假设每个条目占 8 字节
+            currentPtr = reinterpret_cast<char*>(currentPtr) + 0x4;
+        }
+
+        auto& member_quit = MemberQuitMgmt::GetInstance();
+        std::vector<ModelGroupMember> oldMemberList = GetRoomMembers(groupID);
+        std::vector<ModelGroupMember> removedMembers;
+        for (const auto& oldMember : oldMemberList) {
+            if (wxidSet.find(oldMember.Wxid) != wxidSet.end()) {
+                removedMembers.push_back(oldMember);
+            }
+        }
+        if (removedMembers.size() > 0) {
+            member_quit.AddMemberQuit(groupID, removedMembers);
+        }
+
+    }
+    catch (const std::exception& e) {
+        LOG_INFO("Error in ProcessMemberBeKick: {}", e.what());
+        return realMemberBeKick(a1, a2, a3, a4);
+    }
+    return realMemberBeKick(a1,a2,a3,a4);
+}
+
+//主动踢人
+void ListenMemberBeKick()
+{
+    MH_STATUS status = MH_UNKNOWN;
+    if (gIsListenKickMember) {
+        LOG_WARN("gIsListenKickMember");
+        return;
+    }
+    MemberBeKick_t funcMemberBeKick = (MemberBeKick_t)(g_WeChatWinDllAddr + OS_MEMBER_BE_KICK);
+
+    status = InitializeHook();
+    if (status != MH_OK) {
+        LOG_ERROR("MH_Initialize failed: {}", to_string(status));
+        return;
+    }
+
+    LOG_INFO("create member be kick hook");
+
+    status = MH_CreateHook(funcMemberBeKick, &ProcessMemberBeKick, reinterpret_cast<LPVOID*>(&realMemberBeKick));
+    if (status != MH_OK) {
+        LOG_ERROR("MH_CreateHook failed: {}", to_string(status));
+        return;
+    }
+
+    status = MH_EnableHook(funcMemberBeKick);
+    if (status != MH_OK) {
+        LOG_ERROR("MH_EnableHook failed: {}", to_string(status));
+        return;
+    }
+    gIsListenKickMember = true;
+}
+
+void UnListenMemberBeKick()
+{
+    MH_STATUS status = MH_UNKNOWN;
+    if (!gIsListenKickMember) {
+        return;
+    }
+
+    status = MH_DisableHook(funcMemberBeKick);
+    if (status != MH_OK) {
+        LOG_ERROR("MH_DisableHook failed: {}", to_string(status));
+        return;
+    }
+
+    gIsListenKickMember = false;
 
     status = UninitializeHook();
     if (status != MH_OK) {

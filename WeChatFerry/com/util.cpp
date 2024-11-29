@@ -45,6 +45,14 @@ uint32_t GetCurrentTimestamp() {
         .count());
 }
 
+std::string ReadUtf8String(void* address) {
+    // 读取一个UTF-8字符串的地址，并转换为 std::string
+    if (address == nullptr) {
+        return "";
+    }
+    return std::string(static_cast<char*>(address));
+}
+
 string ReadUtf16String(__int64 addr) {
     if (addr == 0) return ""; // 空指针保护
 
