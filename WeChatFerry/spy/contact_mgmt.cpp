@@ -57,8 +57,9 @@ static string GetCntString(QWORD start, QWORD end, const uint8_t* feat, size_t l
 }
 
 int ModifyContactRemark(string wxid, string remark) {
+
     wstring wsWxid = String2Wstring(wxid);
-    wstring wsRemark = String2Wstring(remark);
+    wstring wsRemark = !remark.empty() ? String2Wstring(remark) : L"";
     WxString wxWxid(wsWxid);
     WxString wxRemark(wsRemark);
 

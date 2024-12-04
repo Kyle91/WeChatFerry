@@ -876,11 +876,16 @@ bool func_modify_contact_remark(char* wxid, char* remark, uint8_t* out, size_t* 
     rsp.which_msg = Response_status_tag;
     rsp.msg.status = 0;
 
+
     if ((wxid == NULL)) {
         LOG_ERROR("Empty wxid.");
         rsp.msg.status = -1;
     }
     else {
+        if (remark == NULL || remark[0] == '\0') {
+            remark = (char*)malloc(1);
+            remark[0] = '\0'; 
+        }
         rsp.msg.status = ModifyContactRemark(wxid, remark);
     }
 

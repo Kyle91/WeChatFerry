@@ -1,3 +1,8 @@
+rdi = 第一个参数
+rsi = 第二个参数
+rdx = 第三个参数
+rcx = 第四个参数
+
 1. hook实时消息的思路
 https://www.52pojie.cn/forum.php?mod=viewthread&tid=1970822&highlight=%CE%A2%D0%C5%CF%FB%CF%A2
 
