@@ -37,3 +37,5 @@ WcfOuterClass.java
 
 */http/dist/
 */http/*.egg-info/
+/WeChatFerry/vcpkg_installed
+同步主仓库.txt
