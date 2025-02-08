@@ -82,6 +82,7 @@ void SendTextMessage(string wxid, string msg, string atWxids)
     funcSendMsgMgr();
     success = funcSendTextMsg((QWORD)(&buffer), (QWORD)(&wxWxid), (QWORD)(&wxMsg), wxAters, 1, 1, 0, 0);
     funcFree((QWORD)(&buffer));
+
 }
 
 void SendImageMessage(string wxid, string path)
@@ -112,6 +113,7 @@ void SendImageMessage(string wxid, string path)
     funcSendImage(sendMgr, pMsg, (QWORD)(&wxWxid), (QWORD)(&wxPath), (QWORD)(&flag));
     funcFree(pMsg);
     funcFree(pMsgTmp);
+
 }
 
 void SendFileMessage(string wxid, string path)
@@ -142,6 +144,7 @@ void SendFileMessage(string wxid, string path)
     funcSendImage(sendMgr, pMsg, (QWORD)(&wxWxid), (QWORD)(&wxPath), (QWORD)(&flag));
     funcFree(pMsg);
     funcFree(pMsgTmp);
+
     //这段代码不管怎么样都会崩，那直接用发图片的call吧
     /*wstring wsWxid = String2Wstring(wxid);
     wstring wsPath = String2Wstring(path);
@@ -200,6 +203,14 @@ int SendRichTextMessage(RichText_t &rt)
     QWORD mgr = funcGetAppMsgMgr();
     status    = funcForwordPublicMsg(mgr, (QWORD)(pReceiver), (QWORD)(buff));
     funcFree((QWORD)buff);
+
+    FreeWxString(pReceiver);  // Free the allocated WxString objects
+    FreeWxString(pTitle);
+    FreeWxString(pUrl);
+    FreeWxString(pThumburl);
+    FreeWxString(pDigest);
+    FreeWxString(pAccount);
+    FreeWxString(pName);
 
     return (int)status;
 }
@@ -300,4 +311,9 @@ void SendXmlMessage(string receiver, string xml, string path, QWORD type)
 
     funcFree((QWORD)&buff);
     funcFree((QWORD)&buff2);
+
+    FreeWxString(pReceiver);
+    FreeWxString(pXml);
+    FreeWxString(pPath);
+    FreeWxString(pSender);
 }

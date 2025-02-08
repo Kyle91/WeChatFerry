@@ -432,6 +432,21 @@ WxString *NewWxStringFromWstr(const wstring &ws)
     return p;
 }
 
+void FreeWxString(WxString* p) {
+    if (p != nullptr) {
+        if (p->wptr != nullptr) {
+            // 强制转换为 wchar_t*，然后释放内存
+            HeapFree(GetProcessHeap(), 0, const_cast<wchar_t*>(p->wptr));  // 释放wchar_t字符串
+            p->wptr = nullptr;  // 防止重复释放
+        }
+        HeapFree(GetProcessHeap(), 0, p);  // 释放WxString结构体
+        p = nullptr;  // 防止重复释放
+    }
+}
+
+
+
+
 // 将 \u 转义的 UTF-16 代理对转换为实际的表情符号
 std::wstring parseUnicodeString(const std::string& str) {
     std::wstring result;

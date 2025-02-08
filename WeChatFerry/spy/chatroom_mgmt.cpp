@@ -48,6 +48,10 @@ int AddChatroomMember(string roomid, string wxids)
 
     QWORD mgr = GetChatRoomMgr();
     status    = (int)AddMembers(mgr, pMembers, (QWORD)pWxRoomid, (QWORD)temp);
+
+    // 释放分配的内存
+    FreeWxString(pWxRoomid);  // 释放 roomid 对应的 WxString
+    
     return status;
 }
 
@@ -62,6 +66,12 @@ int DelChatroomMember(string roomid, string wxids)
 
     GetChatRoomMgr_t GetChatRoomMgr    = (GetChatRoomMgr_t)(g_WeChatWinDllAddr + OS_GET_CHATROOM_MGR);
     DelMemberFromChatRoom_t DelMembers = (DelMemberFromChatRoom_t)(g_WeChatWinDllAddr + OS_DELETE_MEMBERS);
+
+    LOG_INFO("del members,{}",wxids);
+
+    if (!wxids.empty() && wxids.back() == ',') {
+        wxids.pop_back();  // 移除末尾的逗号
+    }
 
     vector<wstring> vMembers;
     vector<WxString> vWxMembers;
@@ -79,6 +89,10 @@ int DelChatroomMember(string roomid, string wxids)
 
     QWORD mgr = GetChatRoomMgr();
     status    = (int)DelMembers(mgr, pMembers, (QWORD)pWxRoomid);
+
+    // 释放分配的内存
+    //FreeWxString(pWxRoomid);  // 释放 roomid 对应的 WxString
+    
     return status;
 }
 
@@ -109,5 +123,9 @@ int InviteChatroomMember(string roomid, string wxids)
     QWORD pMembers      = (QWORD) & ((RawVector_t *)&vWxMembers)->start;
 
     status = (int)InviteMembers((QWORD)wsRoomid.c_str(), pMembers, (QWORD)pWxRoomid, (QWORD)temp);
+
+    // 释放分配的内存
+    FreeWxString(pWxRoomid);  // 释放 roomid 对应的 WxString
+   
     return status;
 }

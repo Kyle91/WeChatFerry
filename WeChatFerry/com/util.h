@@ -39,6 +39,7 @@ std::string GetStringByWstrAddr(UINT64 addr);
 void DbgMsg(const char *zcFormat, ...);
 WxString *NewWxStringFromStr(const std::string &str);
 WxString *NewWxStringFromWstr(const std::wstring &ws);
+void FreeWxString(WxString* p);
 std::wstring convertToWString(const std::string& input);
 std::string ReadAdjustedString(__int64 addr);
 std::string ReadUtf16String(__int64 addr);

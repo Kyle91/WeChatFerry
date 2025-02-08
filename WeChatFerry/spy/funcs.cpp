@@ -16,6 +16,7 @@ namespace fs = std::filesystem;
 
 extern bool gIsListeningPyq;
 extern QWORD g_WeChatWinDllAddr;
+extern string GetSelfWxid(); // Defined in spy.cpp
 
 #define HEADER_PNG1 0x89
 #define HEADER_PNG2 0x50
@@ -36,6 +37,9 @@ extern QWORD g_WeChatWinDllAddr;
 #define OS_GET_PRE_DOWNLOAD_MGR       0x1C0EE70
 #define OS_PUSH_ATTACH_TASK           0x1CDF4E0
 #define OS_LOGIN_QR_CODE              0x59620d8
+#define OS_NEW_PAYINFO                0x1BD2400
+#define OS_FREE_PAYINFO               0x1B96F20
+#define OS_TRANSFER_CONFIRM           0x2F91B70
 
 typedef QWORD (*GetSNSDataMgr_t)();
 typedef QWORD (*GetSnsTimeLineMgr_t)();
@@ -49,6 +53,9 @@ typedef QWORD (*GetMgrByPrefixLocalId_t)(QWORD, QWORD);
 typedef QWORD (*PushAttachTask_t)(QWORD, QWORD, QWORD, QWORD);
 typedef QWORD (*GetOCRManager_t)();
 typedef QWORD (*DoOCRTask_t)(QWORD, QWORD, QWORD, QWORD, QWORD, QWORD);
+typedef uint64_t(*NewWCPayInfo_t)(uint64_t);
+typedef uint64_t(*FreeWCPayInfo_t)(uint64_t);
+typedef void(__fastcall* PayTransferConfirm_t)(__int64, __int64);
 
 int IsLogin(void) { return (int)GET_QWORD(g_WeChatWinDllAddr + OS_LOGIN_STATUS); }
 
@@ -258,8 +265,8 @@ int DownloadAttach(QWORD id, string thumb, string extra)
     fs::create_directory(fs::path(save_path).parent_path().string());
 
     int temp             = 1;
-    WxString *pSavePath  = NewWxStringFromStr(save_path);
-    WxString *pThumbPath = NewWxStringFromStr(thumb_path);
+    WxString* pSavePath  = NewWxStringFromStr(save_path);
+    WxString* pThumbPath = NewWxStringFromStr(thumb_path);
 
     memcpy(&buff[0x280], pThumbPath, sizeof(WxString));
     memcpy(&buff[0x2A0], pSavePath, sizeof(WxString));
@@ -268,6 +275,10 @@ int DownloadAttach(QWORD id, string thumb, string extra)
     QWORD mgr = GetPreDownLoadMgr();
     status    = (int)PushAttachTask(mgr, pChatMsg, 0, 1);
     FreeChatMsg(pChatMsg);
+
+
+    FreeWxString(pSavePath);
+    FreeWxString(pThumbPath);
 
     return status;
 }
@@ -364,6 +375,63 @@ string GetLoginUrl()
 
 int ReceiveTransfer(string wxid, string transferid, string transactionid)
 {
-    // 别想了，这个不实现了
-    return -1;
+    int success = -1;
+
+    wstring wsWxid = String2Wstring(wxid);
+    wstring wsTransferid = String2Wstring(transferid);
+    wstring wsTransactionid = String2Wstring(transactionid);
+
+    A2Struct a2 = { 0 };
+    // 构造字符串
+    const char* str = wxid.c_str();
+    // 初始化 a2
+    a2.data = str;        // *(CHAR**)a2 -> 指向字符串
+    a2.field_16 = 1;      // *(a2 + 16) -> 必须非零
+    a2.field_24 = strlen(str) + 1; // *(a2 + 24) -> 长度足够
+
+    WxString recev_id(wsWxid);
+    WxString transfer_id(wsTransferid);
+    WxString transaction_id(wsTransactionid);
+
+    LOG_INFO("ReceiveTransfer 2222,{},{},{}", wxid, transactionid, transferid);
+
+    NewWCPayInfo_t funcNewWCPayInfo = (NewWCPayInfo_t)(g_WeChatWinDllAddr + OS_NEW_PAYINFO);
+    FreeWCPayInfo_t funcFreeWCPayInfo = (FreeWCPayInfo_t)(g_WeChatWinDllAddr + OS_FREE_PAYINFO);
+    PayTransferConfirm_t funcConfirm = (PayTransferConfirm_t)(g_WeChatWinDllAddr + OS_TRANSFER_CONFIRM);
+
+    LOG_INFO("ReceiveTransfer 3333");
+
+
+    //PayInfo pay_info = { 0 };
+    char pay_info[0x224] = { 0 };
+
+    //PayInfo pay_info = {0};
+
+    LOG_INFO("ReceiveTransfer 44444");
+
+    funcNewWCPayInfo(reinterpret_cast<uint64_t>(&pay_info));
+
+   LOG_INFO("ReceiveTransfer 5555");
+
+   memcpy(&pay_info[0x30], &transaction_id, sizeof(WxString));
+   memcpy(&pay_info[0x58], &transfer_id, sizeof(WxString));
+
+
+
+ /*  memcpy(&pay_info.transaction_id, &transaction_id, 32);
+   memcpy(&pay_info.transfer_id, &transfer_id, 31);*/
+
+
+    LOG_INFO("ReceiveTransfer 6666");
+
+    funcConfirm((__int64)&pay_info, (__int64)&recev_id);
+
+    LOG_INFO("ReceiveTransfer 7777");
+
+    //funcFreeWCPayInfo(reinterpret_cast<uint64_t>(&pay_info));
+
+    LOG_INFO("ReceiveTransfer 8888");
+
+    return 0;
 }
+
